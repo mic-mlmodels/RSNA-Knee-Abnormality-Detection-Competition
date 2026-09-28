@@ -1807,9 +1807,7 @@ def rsna_array(shape, tag):
     )
     try:
         directory.mkdir(parents=True, exist_ok=True)
-    except (
-        OSError
-    ) as scratch_error:  # /kaggle/temp is not guaranteed; /tmp is non-persisted scratch with ~1 TiB free
+    except OSError as scratch_error:  # /kaggle/temp is not guaranteed; /tmp is non-persisted scratch with ~1 TiB free
         rsna_event(
             "scratch_fallback",
             tag=tag,
