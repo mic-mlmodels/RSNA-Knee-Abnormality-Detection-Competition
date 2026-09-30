@@ -48,9 +48,10 @@ KERAS_BATCHNORM_EPSILON = 1.001e-5
 MODES = ("partial", "full")
 FOLDS = (0, 1, 2, 3, 4)
 BATCH_STUDIES = 4
-MAX_EPOCHS = 15
+MAX_EPOCHS = 20
 PATIENCE = 5
-MIN_EPOCHS = 6
+MIN_EPOCHS = 20
+TRAIN_EVAL_STUDIES = 500
 MIN_DELTA = 2e-4
 WARMUP_FRACTION = 0.1
 NUM_WORKERS = 4
@@ -380,6 +381,9 @@ def train_fold(fold, mode, pixels, mask, y, w, train_idx, val_idx, device, max_e
         ),
     )
     params = [p for p in model.parameters() if p.requires_grad]
+    train_eval_idx = np.random.default_rng(SEED + fold).choice(
+        train_idx, size=min(TRAIN_EVAL_STUDIES, len(train_idx)), replace=False
+    )
     stale = 0
     for epoch in range(max_epochs):
         set_train_mode(model)
@@ -404,9 +408,11 @@ def train_fold(fold, mode, pixels, mask, y, w, train_idx, val_idx, device, max_e
             running += loss.item()
         pred = predict(model, pixels, mask, y, w, val_idx, device)
         score = macro_auc(y[val_idx], pred)
+        train_pred = predict(model, pixels, mask, y, w, train_eval_idx, device)
+        train_score = macro_auc(y[train_eval_idx], train_pred)
         rate = seen / max(time.time() - started, 1e-6)
         log(
-            f"{mode} fold {fold} epoch {epoch}: loss {running / max(1, len(train_loader)):.4f} | val AUC {score:.5f} | {rate:.0f} img/s"
+            f"{mode} fold {fold} epoch {epoch}: loss {running / max(1, len(train_loader)):.4f} | train AUC {train_score:.5f} | val AUC {score:.5f} | {rate:.0f} img/s"
         )
         if score > best_auc + MIN_DELTA:
             best_auc, best_pred, best_epoch, stale = score, pred, epoch, 0
