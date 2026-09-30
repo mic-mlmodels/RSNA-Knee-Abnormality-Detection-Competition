@@ -49,11 +49,12 @@ MODES = ("partial", "full")
 FOLDS = (0, 1, 2, 3, 4)
 BATCH_STUDIES = 4
 MAX_EPOCHS = 15
-PATIENCE = 3
+PATIENCE = 5
+MIN_EPOCHS = 6
 MIN_DELTA = 2e-4
-WARMUP_FRACTION = 0.05
+WARMUP_FRACTION = 0.1
 NUM_WORKERS = 4
-HEAD_LR = 1e-4
+HEAD_LR = 5e-5
 HEAD_WEIGHT_DECAY = 3e-3
 ENCODER_WEIGHT_DECAY = 1e-4
 ENCODER_LR = {
@@ -414,7 +415,7 @@ def train_fold(fold, mode, pixels, mask, y, w, train_idx, val_idx, device, max_e
             }
         else:
             stale += 1
-            if stale >= PATIENCE:
+            if stale >= PATIENCE and epoch + 1 >= MIN_EPOCHS:
                 break
     if best_state is None:
         log(
