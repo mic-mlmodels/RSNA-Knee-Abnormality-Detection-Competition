@@ -108,7 +108,7 @@
 #   * the outer CoAtNet default rose from 0.60 to 0.65.
 import os
 
-PRESET = os.environ.get("RSNA_PRESET", "speedy")
+PRESET = os.environ.get("RSNA_PRESET", "parent")
 
 RUN = {
     # --- stage 2: A5 attention folds against the DINO base ------------------
