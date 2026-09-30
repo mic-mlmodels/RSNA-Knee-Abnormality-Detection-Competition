@@ -1,5 +1,6 @@
 import re
-from torch import functional as F
+import h5py
+import torch.nn.functional as F
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
 import gc, os, time, warnings
@@ -9,7 +10,6 @@ import pandas as pd
 import pydicom
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 T0 = time.time()
@@ -287,9 +287,9 @@ def annotate(df):
                     gre,
                     "GRE",
                     np.where(
-                        tr < 800,
+                        tr < 800,  # type: ignore
                         "T1",
-                        np.where(te > 60, "T2", np.where(tr >= 800, "PD", "UNK")),
+                        np.where(te > 60, "T2", np.where(tr >= 800, "PD", "UNK")),  # type: ignore
                     ),
                 ),
             ),
@@ -396,7 +396,7 @@ def order_slices(rec):
             k = float(np.dot(ipp, np.cross(iop[:3], iop[3:])))
         except Exception:
             try:
-                k = float(ds.InstanceNumber)
+                k = float(ds.InstanceNumber)  # type: ignore
             except Exception:
                 k = None
         keyed.append((k, f))
@@ -609,10 +609,16 @@ SLICE_BAND = (0.12, 0.88)
 RULES = dict(RULES_LEGACY)
 
 
-TOKEN_DIM = 2048  # official ResNet-50 global-average feature
+TOKEN_DIM = 1024
 
 
 HEAD_DIM = 512
+
+
+KERAS_BGR_MEAN = (103.939, 116.779, 123.68)
+
+
+KERAS_BATCHNORM_EPSILON = 1.001e-5
 
 
 def find_input_file(name):
@@ -660,17 +666,68 @@ def _v52_sha256(path):
     return digest.hexdigest()
 
 
+def decode(n):
+    if isinstance(n, bytes):
+        return n.decode()
+    else:
+        return n
+
+
+def keras_to_torch_densenet(path):
+    state = {}
+    with h5py.File(path, "r") as handle:
+        weights = handle["model_weights"]
+        for layer in map(decode, weights.attrs["layer_names"]):  # type: ignore
+            names = list(map(decode, weights[layer].attrs.get("weight_names", [])))  # type: ignore
+            if not names:
+                continue
+            w = {
+                n.split("/")[-1].split(":")[0]: np.asarray(weights[layer][n])  # type: ignore
+                for n in names
+            }
+            if layer == "conv1/conv":
+                key = "conv0"
+            elif layer == "conv1/bn":
+                key = "norm0"
+            elif layer == "bn":
+                key = "norm5"
+            elif m := re.fullmatch(r"conv(\d)_block(\d+)_(\d)_(bn|conv)", layer):
+                sub = {
+                    ("0", "bn"): "norm1",
+                    ("1", "conv"): "conv1",
+                    ("1", "bn"): "norm2",
+                    ("2", "conv"): "conv2",
+                }[(m[3], m[4])]
+                key = f"denseblock{int(m[1]) - 1}.denselayer{int(m[2])}.{sub}"
+            elif m := re.fullmatch(r"pool(\d)_(bn|conv)", layer):
+                key = f"transition{int(m[1]) - 1}.{'norm' if m[2] == 'bn' else 'conv'}"
+            else:
+                raise RuntimeError(f"unmapped Keras DenseNet layer {layer}")
+            prefix = f"backbone.0.{key}."
+            if "kernel" in w:
+                state[prefix + "weight"] = (
+                    torch.from_numpy(w["kernel"]).permute(3, 2, 0, 1).contiguous()
+                )
+            else:
+                state[prefix + "weight"] = torch.from_numpy(w["gamma"])
+                state[prefix + "bias"] = torch.from_numpy(w["beta"])
+                state[prefix + "running_mean"] = torch.from_numpy(w["moving_mean"])
+                state[prefix + "running_var"] = torch.from_numpy(w["moving_variance"])
+                state[prefix + "num_batches_tracked"] = torch.tensor(0)
+    return state
+
+
 def load_radimagenet(device):
-    """Strictly load the official RadImageNet ResNet-50 PyTorch checkpoint."""
+    """Strictly load the RadImageNet DenseNet-121 checkpoint."""
     from torchvision.models import densenet121
 
     checkpoint = find_input_file("RadImageNet-DenseNet121_notop.h5")
-    # expected_checkpoint = (
-    #     "08629f7e7bd3e29b8ee9522ca3f65ce4d010a7ddf74f0ea3c7e3f3d0bbab0734"
-    # )
-    # observed_checkpoint = _v52_sha256(checkpoint)
-    # if observed_checkpoint != expected_checkpoint:
-    #     raise RuntimeError(f"RadImageNet checkpoint drift: {observed_checkpoint}")
+    expected_checkpoint = (
+        "5266539752a33d3345b1e4690ddd7bef80a2f0e2b534a4ece4ff75625abdb976"
+    )
+    observed_checkpoint = _v52_sha256(checkpoint)
+    if observed_checkpoint != expected_checkpoint:
+        raise RuntimeError(f"RadImageNet checkpoint drift: {observed_checkpoint}")
 
     class RadImageNetEncoder(nn.Module):
         def __init__(self):
@@ -678,12 +735,15 @@ def load_radimagenet(device):
             self.backbone = nn.Sequential(
                 *list(densenet121(weights=None).children())[:-1]
             )
+            for module in self.backbone.modules():
+                if isinstance(module, nn.BatchNorm2d):
+                    module.eps = KERAS_BATCHNORM_EPSILON
 
         def forward(self, image):
             return F.relu(self.backbone(image)).mean(dim=(2, 3))
 
     model = RadImageNetEncoder()
-    state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    state = keras_to_torch_densenet(checkpoint)
     if not state or not all(str(key).startswith("backbone.") for key in state):
         raise RuntimeError("unexpected RadImageNet state-dict namespace")
     model.load_state_dict(state, strict=True)
@@ -705,7 +765,7 @@ def load_radimagenet(device):
 
 @torch.inference_mode()
 def encode_radimagenet(cache, slot_mask, device):
-    """Encode acquired slices with the official [-1, 1] RadImageNet contract."""
+    """Encode acquired slices with the Keras caffe-mode RadImageNet contract."""
     n, slots, slices, h, w = cache.shape
     features = np.zeros((n, slots * slices, TOKEN_DIM), np.float16)
     token_mask = np.repeat(slot_mask[:, :, None], slices, axis=2).reshape(n, -1)
@@ -716,10 +776,11 @@ def encode_radimagenet(cache, slot_mask, device):
         batch = 192 if torch.cuda.device_count() > 1 else 96
     else:
         batch = 8
+    mean = torch.tensor(KERAS_BATCHNORM_EPSILON, device=device).view(1, 3, 1, 1)
     for b0 in range(0, len(valid), batch):
         ix = valid[b0 : b0 + batch]
-        x = torch.from_numpy(flat[ix]).to(device).float().div_(127.5).sub_(1.0)
-        x = x.unsqueeze(1).expand(-1, 3, -1, -1).contiguous()
+        x = torch.from_numpy(flat[ix]).to(device).float().unsqueeze(1)
+        x = (x - mean) / 255.0
         with torch.autocast("cuda", enabled=device.type == "cuda"):
             feat = model(x)
         if feat.shape[1:] != (TOKEN_DIM,):
@@ -900,7 +961,7 @@ def main():
             features, token_mask, y, weights, tr, va, fold, device
         )
         head = FoundationQueryHead().to(device)
-        head.load_state_dict(state, strict=True)
+        head.load_state_dict(state, strict=True)  # type: ignore
         oof[va] = predict_head(head, features, token_mask, va, device)
         heads.append({"fold": fold, "weak_auc": float(score), "state_dict": state})
         del head
