@@ -621,6 +621,9 @@ KERAS_BGR_MEAN = (103.939, 116.779, 123.68)
 KERAS_BATCHNORM_EPSILON = 1.001e-5
 
 
+LIMIT_CORPUS = None
+
+
 def find_input_file(name):
     for root, dirs, files in os.walk("/kaggle/input"):
         dirs[:] = [d for d in dirs if d not in ("train_series", "test_series")]
@@ -776,7 +779,7 @@ def encode_radimagenet(cache, slot_mask, device):
         batch = 192 if torch.cuda.device_count() > 1 else 96
     else:
         batch = 8
-    mean = torch.tensor(KERAS_BATCHNORM_EPSILON, device=device).view(1, 3, 1, 1)
+    mean = torch.tensor(KERAS_BGR_MEAN, device=device).view(1, 3, 1, 1)
     for b0 in range(0, len(valid), batch):
         ix = valid[b0 : b0 + batch]
         x = torch.from_numpy(flat[ix]).to(device).float().unsqueeze(1)
@@ -930,12 +933,16 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
 
     train = pd.read_csv(ROOT / "train.csv", dtype={"StudyInstanceUID": str})
+    if LIMIT_CORPUS:
+        train = train.iloc[:LIMIT_CORPUS].reset_index(drop=True)
+        log(f"LIMIT_STUDIES={LIMIT_CORPUS}: smoke-test run on a subset")
     train_series = pd.read_csv(
         ROOT / "train_series.csv",
         dtype={"StudyInstanceUID": str, "SeriesInstanceUID": str},
     )
     plane = dict(zip(train_series.SeriesInstanceUID, train_series.Anatomical_Plane))
     headers = annotate(walk("train_series"))
+    headers = headers[headers.StudyInstanceUID.isin(set(train.StudyInstanceUID))]
     studies, pixels, slot_mask = build_cache(
         pick_slots(headers, plane), plane, lat_of(headers, "train "), "train"
     )
@@ -946,6 +953,13 @@ def main():
     features, token_mask = encode_radimagenet(pixels, slot_mask, device)
     del pixels, slot_mask, headers
     gc.collect()
+    np.savez(
+        output / "features.npz",
+        features=features,
+        token_mask=token_mask,
+        study_ids=train.StudyInstanceUID.to_numpy(str),
+    )
+    log(f"saved encoder features {features.shape} to {output / 'features.npz'}")
 
     y, weights, gold = make_targets(train)
     reference = pd.read_csv(
@@ -960,8 +974,10 @@ def main():
         state, score = train_fold(
             features, token_mask, y, weights, tr, va, fold, device
         )
+        if state is None:
+            raise RuntimeError(f"fold {fold} produced no checkpoint")
         head = FoundationQueryHead().to(device)
-        head.load_state_dict(state, strict=True)  # type: ignore
+        head.load_state_dict(state, strict=True)
         oof[va] = predict_head(head, features, token_mask, va, device)
         heads.append({"fold": fold, "weak_auc": float(score), "state_dict": state})
         del head

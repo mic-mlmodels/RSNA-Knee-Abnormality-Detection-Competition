@@ -1,0 +1,25 @@
+{
+  "id": "micmlmodels/rsna-knee-densenet-rad-train",
+  "title": "RSNA Knee DenseNet Rad Train",
+  "code_file": "finetuned_radimagenet_densenet.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "machine_shape": "NvidiaTeslaT4",
+  "keywords": [],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "dataset_sources": [
+    "sjudal/radimagenet-densenet121",
+    "pilkwang/rsna-knee-llm-labels",
+    "stevenleehans/rsna-knee-llm-report-labels",
+    "lixin73/rsna-knee-llm-report-labels-sol56",
+    "antoinegg1/rsna-knee-e9-radimagenet-heads-v15"
+  ],
+  "kernel_sources": [],
+  "model_sources": []
+}
