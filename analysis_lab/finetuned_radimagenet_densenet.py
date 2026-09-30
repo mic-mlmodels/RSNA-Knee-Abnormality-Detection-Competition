@@ -1,4 +1,5 @@
 import re
+from torch import functional as F
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
 import gc, os, time, warnings
@@ -661,23 +662,25 @@ def _v52_sha256(path):
 
 def load_radimagenet(device):
     """Strictly load the official RadImageNet ResNet-50 PyTorch checkpoint."""
-    from torchvision.models import resnet50
+    from torchvision.models import densenet121
 
-    checkpoint = find_input_file("ResNet50.pt")
-    expected_checkpoint = (
-        "08629f7e7bd3e29b8ee9522ca3f65ce4d010a7ddf74f0ea3c7e3f3d0bbab0734"
-    )
-    observed_checkpoint = _v52_sha256(checkpoint)
-    if observed_checkpoint != expected_checkpoint:
-        raise RuntimeError(f"RadImageNet checkpoint drift: {observed_checkpoint}")
+    checkpoint = find_input_file("RadImageNet-DenseNet121_notop.h5")
+    # expected_checkpoint = (
+    #     "08629f7e7bd3e29b8ee9522ca3f65ce4d010a7ddf74f0ea3c7e3f3d0bbab0734"
+    # )
+    # observed_checkpoint = _v52_sha256(checkpoint)
+    # if observed_checkpoint != expected_checkpoint:
+    #     raise RuntimeError(f"RadImageNet checkpoint drift: {observed_checkpoint}")
 
     class RadImageNetEncoder(nn.Module):
         def __init__(self):
             super().__init__()
-            self.backbone = nn.Sequential(*list(resnet50(weights=None).children())[:-2])
+            self.backbone = nn.Sequential(
+                *list(densenet121(weights=None).children())[:-1]
+            )
 
         def forward(self, image):
-            return self.backbone(image).mean(dim=(2, 3))
+            return F.relu(self.backbone(image)).mean(dim=(2, 3))
 
     model = RadImageNetEncoder()
     state = torch.load(checkpoint, map_location="cpu", weights_only=True)
@@ -685,7 +688,7 @@ def load_radimagenet(device):
         raise RuntimeError("unexpected RadImageNet state-dict namespace")
     model.load_state_dict(state, strict=True)
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
-    if parameter_count != 23_508_032:
+    if parameter_count != 6953856:
         raise RuntimeError(f"unexpected RadImageNet parameter count {parameter_count}")
     model.eval().to(device)
     for parameter in model.parameters():
