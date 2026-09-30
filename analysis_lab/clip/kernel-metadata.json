@@ -1,0 +1,26 @@
+{
+  "id": "micmlmodels/rsna-knee-clip-rad-train",
+  "title": "RSNA Knee CLIP Rad Train",
+  "code_file": "clip_image_heads.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "machine_shape": "NvidiaTeslaT4",
+  "keywords": [],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "dataset_sources": [
+    "pilkwang/rsna-knee-llm-labels",
+    "stevenleehans/rsna-knee-llm-report-labels",
+    "lixin73/rsna-knee-llm-report-labels-sol56",
+    "antoinegg1/rsna-knee-e9-radimagenet-heads-v15"
+  ],
+  "kernel_sources": [],
+  "model_sources": [
+    "laionai/clip-vit/pyTorch/b-16-datacomp-xl-s13b-b90k/1"
+  ]
+}
