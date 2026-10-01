@@ -45,8 +45,8 @@ HEAD_DIM = 512
 KERAS_BGR_MEAN = (103.939, 116.779, 123.68)
 KERAS_BATCHNORM_EPSILON = 1.001e-5
 
-MODES = ("partial", "full")
-FOLDS = (0, 1, 2, 3, 4)
+MODES = ("partial",)
+FOLDS = (0,)
 BATCH_STUDIES = 4
 MAX_EPOCHS = 20
 PATIENCE = 5
@@ -59,7 +59,7 @@ HEAD_LR = 5e-5
 HEAD_WEIGHT_DECAY = 3e-3
 ENCODER_WEIGHT_DECAY = 0.0
 ENCODER_LR = {
-    "partial": {"denseblock4": 5e-6, "norm5": 5e-6},
+    "partial": {"denseblock4": 2e-5, "norm5": 2e-5},
     "full": {
         "conv0": 2e-6,
         "norm0": 2e-6,
@@ -73,7 +73,8 @@ ENCODER_LR = {
         "norm5": 2e-5,
     },
 }
-WEIGHT_DECAY = 0.01
+ENCODER_L2SP_ALPHA = 20
+HEAD_L2SP_ALPHA = 220
 AUG_ROTATE_DEG = 7.0
 AUG_SCALE = 0.08
 AUG_SHIFT = 0.05
@@ -266,6 +267,7 @@ def parameter_groups(model, mode):
             "params": params,
             "lr": ENCODER_LR[mode][block],
             "weight_decay": ENCODER_WEIGHT_DECAY,
+            "l2sp_alpha": ENCODER_L2SP_ALPHA,
         }
         for block, params in groups.items()
     ]
@@ -274,6 +276,7 @@ def parameter_groups(model, mode):
             "params": list(model.head.parameters()),
             "lr": HEAD_LR,
             "weight_decay": HEAD_WEIGHT_DECAY,
+            "l2sp_alpha": HEAD_L2SP_ALPHA,
         }
     )
     return result
@@ -283,7 +286,7 @@ def parameter_groups(model, mode):
 def relative_drift(params, old_params):
     diff = sum(((p.float() - a) ** 2).sum() for p, a in zip(params, old_params))
     base = sum((a**2).sum() for a in old_params)
-    return float((diff / base).sqrt())
+    return float((diff / base).sqrt())  # type: ignore
 
 
 def set_train_mode(model):
@@ -361,9 +364,22 @@ def predict(model, pixels, mask, y, w, indices, device):
     return torch.cat(out).numpy()
 
 
+def snapshot_params(optimizer):
+    return [
+        [param.detach().clone() for param in group["params"]]
+        for group in optimizer.param_groups
+    ]
+
+
+def apply_weight_decay(optimizer, old_model_params):
+    with torch.no_grad():
+        for group, old_group in zip(optimizer.param_groups, old_model_params):
+            for param, old_param in zip(group["params"], old_group):
+                param.sub_(group["lr"] * group["l2sp_alpha"] * (param - old_param))
+
+
 def train_fold(fold, mode, pixels, mask, y, w, train_idx, val_idx, device, max_epochs):
     model = build_model(fold, mode, device)
-    old_model_params = model.parameters()
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     pred = predict(model, pixels, mask, y, w, val_idx, device)
     best_auc, best_pred, best_state, best_epoch = (
@@ -376,6 +392,7 @@ def train_fold(fold, mode, pixels, mask, y, w, train_idx, val_idx, device, max_e
         f"{mode} fold {fold}: {trainable:,} trainable params | start (frozen) val AUC {best_auc:.5f}"
     )
     optimizer = torch.optim.AdamW(parameter_groups(model, mode))
+    old_model_params = snapshot_params(optimizer)
     train_loader = loader(
         pixels, mask, y, w, train_idx, True, BATCH_STUDIES, SEED + 100 + fold
     )
@@ -412,7 +429,7 @@ def train_fold(fold, mode, pixels, mask, y, w, train_idx, val_idx, device, max_e
             loss.backward()
             nn.utils.clip_grad_norm_(params, 1.0)
             optimizer.step()
-            model.parameters() -= WEIGHT_DECAY * relative_drift(model.parameters(), old_model_params)
+            apply_weight_decay(optimizer, old_model_params)
             schedule.step()
             seen += x.shape[0] * N_TOKENS
             running += loss.item()
@@ -421,8 +438,15 @@ def train_fold(fold, mode, pixels, mask, y, w, train_idx, val_idx, device, max_e
         train_pred = predict(model, pixels, mask, y, w, train_eval_idx, device)
         train_score = macro_auc(y[train_eval_idx], train_pred)
         rate = seen / max(time.time() - started, 1e-6)
+        encoder_drift = relative_drift(
+            [p for group in optimizer.param_groups[:-1] for p in group["params"]],
+            [a for old_group in old_model_params[:-1] for a in old_group],
+        )
+        head_drift = relative_drift(
+            optimizer.param_groups[-1]["params"], old_model_params[-1]
+        )
         log(
-            f"{mode} fold {fold} epoch {epoch}: loss {running / max(1, len(train_loader)):.4f} | train AUC {train_score:.5f} | val AUC {score:.5f} | {rate:.0f} img/s"
+            f"{mode} fold {fold} epoch {epoch}: loss {running / max(1, len(train_loader)):.4f} | train AUC {train_score:.5f} | val AUC {score:.5f} | drift enc {encoder_drift:.5f} head {head_drift:.5f} | {rate:.0f} img/s"
         )
         if score > best_auc + MIN_DELTA:
             best_auc, best_pred, best_epoch, stale = score, pred, epoch, 0
