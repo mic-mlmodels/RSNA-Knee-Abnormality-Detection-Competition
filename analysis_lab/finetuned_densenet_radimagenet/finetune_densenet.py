@@ -57,9 +57,9 @@ WARMUP_FRACTION = 0.1
 NUM_WORKERS = 4
 HEAD_LR = 5e-5
 HEAD_WEIGHT_DECAY = 3e-3
-ENCODER_WEIGHT_DECAY = 1e-4
+ENCODER_WEIGHT_DECAY = 0.0
 ENCODER_LR = {
-    "partial": {"denseblock4": 2e-5, "norm5": 2e-5},
+    "partial": {"denseblock4": 5e-6, "norm5": 5e-6},
     "full": {
         "conv0": 2e-6,
         "norm0": 2e-6,
@@ -73,6 +73,7 @@ ENCODER_LR = {
         "norm5": 2e-5,
     },
 }
+WEIGHT_DECAY = 0.01
 AUG_ROTATE_DEG = 7.0
 AUG_SCALE = 0.08
 AUG_SHIFT = 0.05
@@ -278,6 +279,13 @@ def parameter_groups(model, mode):
     return result
 
 
+@torch.no_grad()
+def relative_drift(params, old_params):
+    diff = sum(((p.float() - a) ** 2).sum() for p, a in zip(params, old_params))
+    base = sum((a**2).sum() for a in old_params)
+    return float((diff / base).sqrt())
+
+
 def set_train_mode(model):
     model.train()
     for module in model.backbone.modules():
@@ -355,6 +363,7 @@ def predict(model, pixels, mask, y, w, indices, device):
 
 def train_fold(fold, mode, pixels, mask, y, w, train_idx, val_idx, device, max_epochs):
     model = build_model(fold, mode, device)
+    old_model_params = model.parameters()
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     pred = predict(model, pixels, mask, y, w, val_idx, device)
     best_auc, best_pred, best_state, best_epoch = (
@@ -403,6 +412,7 @@ def train_fold(fold, mode, pixels, mask, y, w, train_idx, val_idx, device, max_e
             loss.backward()
             nn.utils.clip_grad_norm_(params, 1.0)
             optimizer.step()
+            model.parameters() -= WEIGHT_DECAY * relative_drift(model.parameters(), old_model_params)
             schedule.step()
             seen += x.shape[0] * N_TOKENS
             running += loss.item()
