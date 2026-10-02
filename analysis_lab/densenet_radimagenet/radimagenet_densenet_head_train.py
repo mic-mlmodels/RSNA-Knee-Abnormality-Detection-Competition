@@ -591,13 +591,13 @@ SLOTS = [
 N_SLOT = len(SLOTS)
 
 
-CACHE_SLICES = 8
+CACHE_SLICES = 12
 
 
 TIME_BUDGET = 8.72 * 3600
 
 
-IMG = CACHE_IMG = 224
+IMG = CACHE_IMG = 336
 
 
 CROP_MM = 10_000.0
@@ -929,7 +929,7 @@ def train_fold(features, masks, y, weights, train_idx, val_idx, fold, device):
 
 def main():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    output = Path("/kaggle/working/densenet_rad")
+    output = Path(f"/kaggle/working/densenet_rad_{IMG}x{CACHE_SLICES}")
     output.mkdir(parents=True, exist_ok=True)
 
     train = pd.read_csv(ROOT / "train.csv", dtype={"StudyInstanceUID": str})
@@ -948,11 +948,10 @@ def main():
     )
     by_uid = {str(uid): i for i, uid in enumerate(studies)}
     order = np.array([by_uid[uid] for uid in train.StudyInstanceUID], dtype=np.int64)
-    pixels, slot_mask = pixels[order], slot_mask[order]
-
     features, token_mask = encode_radimagenet(pixels, slot_mask, device)
     del pixels, slot_mask, headers
     gc.collect()
+    features, token_mask = features[order], token_mask[order]
     np.savez(
         output / "features.npz",
         features=features,

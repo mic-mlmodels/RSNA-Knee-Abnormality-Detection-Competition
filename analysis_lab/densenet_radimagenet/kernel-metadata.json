@@ -1,7 +1,7 @@
 {
-  "id": "micmlmodels/rsna-knee-densenet-rad-train",
-  "title": "RSNA Knee DenseNet Rad Train",
-  "code_file": "finetuned_radimagenet_densenet.py",
+  "id": "micmlmodels/rsna-knee-densenet-rad-train-336x12",
+  "title": "RSNA Knee DenseNet Rad Train 336x12",
+  "code_file": "radimagenet_densenet_head_train.py",
   "language": "python",
   "kernel_type": "script",
   "is_private": true,
