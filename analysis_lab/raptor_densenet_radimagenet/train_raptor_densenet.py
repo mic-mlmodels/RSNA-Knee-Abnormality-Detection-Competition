@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import os
 import random
 import re
@@ -22,6 +23,7 @@ CORPUS_DIR = DATA / "raptor_corpus"
 OUTPUT = DATA / "raptor_densenet_runs"
 DENSENET_H5 = DATA / "weights" / "RadImageNet-DenseNet121_notop.h5"
 SOFT_LABELS = DATA / "labels" / "labels_llm_soft.parquet"
+AGREEMENT_WEIGHTS = DATA / "labels" / "labels_llm_weights.parquet"
 FOLD_FILE = DATA / "labels" / "folds.json"
 TRAIN_CSV = DATA / "competition" / "train.csv"
 
@@ -100,11 +102,14 @@ def open_ids(corpus_dir):
 
 
 class StudyWindows(Dataset):
-    def __init__(self, corpus_dir, ids, id2row, labels, res, k, train, aug=True):
+    def __init__(
+        self, corpus_dir, ids, id2row, labels, res, k, train, aug=True, weights=None
+    ):
         self.corpus_dir = corpus_dir
         self.ids = ids
         self.id2row = id2row
         self.labels = labels
+        self.weights = weights or {}
         self.res, self.k, self.train, self.aug = res, k, train, aug
         self.vols = None
         self.masks = None
@@ -156,11 +161,36 @@ class StudyWindows(Dataset):
         if self.train and self.aug:
             g = 1.0 + (random.random() - 0.5) * 0.20
             x = (x * g).clamp(0, 1)
-        return x, torch.from_numpy(self.labels[uid])
+        w = self.weights.get(uid)
+        if w is None:
+            w = np.ones(len(LAB), np.float32)
+        return x, torch.from_numpy(self.labels[uid]), torch.from_numpy(w)
 
 
 def collate(batch):
-    return torch.stack([b[0] for b in batch]), torch.stack([b[1] for b in batch])
+    return tuple(torch.stack([b[i] for b in batch]) for i in range(3))
+
+
+def geometric_augment(x, rotate_deg, scale, shift):
+    b, k, c, h, w = x.shape
+    flat = x.flatten(0, 1)
+    n, device = flat.shape[0], flat.device
+    angle = (torch.rand(n, device=device) * 2 - 1) * math.radians(rotate_deg)
+    zoom = 1 + (torch.rand(n, device=device) * 2 - 1) * scale
+    offset = (torch.rand(n, 2, device=device) * 2 - 1) * shift
+    cos, sin = torch.cos(angle) / zoom, torch.sin(angle) / zoom
+    theta = torch.stack(
+        [
+            torch.stack([cos, -sin, offset[:, 0]], 1),
+            torch.stack([sin, cos, offset[:, 1]], 1),
+        ],
+        1,
+    )
+    grid = F.affine_grid(theta, list(flat.shape), align_corners=False)
+    out = F.grid_sample(
+        flat, grid, mode="bilinear", padding_mode="zeros", align_corners=False
+    )
+    return out.view(b, k, c, h, w)
 
 
 def decode(n):
@@ -292,6 +322,14 @@ def main():
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--fold", type=int, default=0)
     ap.add_argument("--fold_file", default=str(FOLD_FILE))
+    ap.add_argument("--geo_aug", action="store_true")
+    ap.add_argument("--rotate_deg", type=float, default=10.0)
+    ap.add_argument("--scale", type=float, default=0.10)
+    ap.add_argument("--shift", type=float, default=0.05)
+    ap.add_argument("--agreement_weights", action="store_true")
+    ap.add_argument("--agreement_file", default=str(AGREEMENT_WEIGHTS))
+    ap.add_argument("--train_eval", type=int, default=500)
+    ap.add_argument("--ema", type=float, default=0.0)
     a = ap.parse_args()
     random.seed(a.seed)
     np.random.seed(a.seed)
@@ -302,7 +340,8 @@ def main():
     out = Path(a.output)
     out.mkdir(parents=True, exist_ok=True)
     print(
-        f"device {dev} | res {a.res} | k {a.k}/{a.k_eval} | bs {a.bs} | tag {a.tag}",
+        f"device {dev} | res {a.res} | k {a.k}/{a.k_eval} | bs {a.bs} | tag {a.tag} | "
+        f"geo_aug {a.geo_aug} | agreement_weights {a.agreement_weights}",
         flush=True,
     )
 
@@ -337,15 +376,37 @@ def main():
         flush=True,
     )
 
+    label_weights = {}
+    if a.agreement_weights:
+        aw = pd.read_parquet(find_file(a.agreement_file, "labels_llm_weights.parquet"))
+        aw["StudyInstanceUID"] = aw["StudyInstanceUID"].astype(str)
+        aw = aw.set_index("StudyInstanceUID")
+        label_weights = {u: aw.loc[u, LAB].values.astype(np.float32) for u in train_ids}
+        mean_w = np.stack(list(label_weights.values())).mean(0)
+        print(
+            "mean agreement weight per finding: "
+            + ", ".join(f"{t} {v:.2f}" for t, v in zip(LAB, mean_w)),
+            flush=True,
+        )
+
     prev = np.clip(np.stack([labels[u] for u in train_ids]).mean(0), 0.03, 0.7)
     pw = torch.tensor(
         np.clip((1 - prev) / prev, 1, 10), dtype=torch.float32, device=dev
     )
 
     def windows(study_ids, k, train):
-        return StudyWindows(a.corpus_dir, study_ids, id2row, labels, a.res, k, train)
+        return StudyWindows(
+            a.corpus_dir,
+            study_ids,
+            id2row,
+            labels,
+            a.res,
+            k,
+            train,
+            weights=label_weights if train else None,
+        )
 
-    def eval_loader(study_ids):
+    def eval_loader(study_ids, generator=None):
         return DataLoader(
             windows(study_ids, a.k_eval, False),
             batch_size=max(2, a.bs // 2),
@@ -353,6 +414,7 @@ def main():
             num_workers=a.workers,
             collate_fn=collate,
             persistent_workers=a.workers > 0,
+            generator=generator,
         )
 
     tl = DataLoader(
@@ -367,6 +429,19 @@ def main():
     )
     vl = eval_loader(gold_ids)
     ol = eval_loader(oof_ids) if oof_ids else None
+    train_eval_ids = []
+    if a.train_eval > 0:
+        train_eval_ids = [
+            str(u)
+            for u in np.random.default_rng(a.seed + a.fold).choice(
+                train_ids, size=min(a.train_eval, len(train_ids)), replace=False
+            )
+        ]
+    tel = (
+        eval_loader(train_eval_ids, torch.Generator().manual_seed(a.seed))
+        if train_eval_ids
+        else None
+    )
 
     weights = None if a.random_init else find_file(a.weights, Path(a.weights).name)
     bb = RadImageNetBackbone(weights, a.grad_ckpt)
@@ -378,6 +453,16 @@ def main():
         f"backbone {src} {n_bb:,} params | head {n_head:,} params | grad_ckpt {a.grad_ckpt}",
         flush=True,
     )
+
+    ema_float, live_float, ema_other, live_other = [], [], [], []
+    if a.ema > 0:
+        for v in model.state_dict().values():
+            if v.is_floating_point():
+                live_float.append(v)
+                ema_float.append(v.detach().clone())
+            else:
+                live_other.append(v)
+                ema_other.append(v.detach().clone())
 
     head_params = [
         p for n_, p in model.named_parameters() if not n_.startswith("backbone.")
@@ -400,7 +485,7 @@ def main():
     def predict(loader):
         model.eval()
         P, Y = [], []
-        for x, y in loader:
+        for x, y, _ in loader:
             with torch.autocast(dev, dtype=torch.bfloat16, enabled=dev == "cuda"):
                 o = torch.sigmoid(model(x.to(dev)).float())
             P.append(o.cpu().numpy())
@@ -442,16 +527,30 @@ def main():
     for ep in range(a.epochs):
         model.train()
         tot = 0.0
-        for x, y in tl:
+        for x, y, w in tl:
             x, y = x.to(dev, non_blocking=True), y.to(dev, non_blocking=True)
+            if a.geo_aug:
+                x = geometric_augment(x, a.rotate_deg, a.scale, a.shift)
             opt.zero_grad()
             with torch.autocast(dev, dtype=torch.bfloat16, enabled=dev == "cuda"):
                 logits = model(x)
+            if a.agreement_weights:
+                w = w.to(dev, non_blocking=True)
+                raw = F.binary_cross_entropy_with_logits(
+                    logits.float(), y, pos_weight=pw, reduction="none"
+                )
+                loss = (raw * w).sum() / w.sum().clamp_min(1e-6)
+            else:
                 loss = lossf(logits.float(), y)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 3.0)
             opt.step()
             sched.step()
+            if ema_float:
+                with torch.no_grad():
+                    torch._foreach_lerp_(ema_float, live_float, 1 - a.ema)
+                    for e, v in zip(ema_other, live_other):
+                        e.copy_(v)
             tot += loss.item()
         P, Y = predict(vl)
         au, aucs = macro_auc(Y, P)
@@ -462,6 +561,10 @@ def main():
             Po, Yo = predict(ol)
             weak = macro_auc(Yo, Po)[0]
             row["oof_weak_auc"] = weak
+        if tel is not None:
+            Pt, Yt = predict(tel)
+            row["train_weak_auc"] = macro_auc(Yt, Pt)[0]
+            extra = f" | train AUC {row['train_weak_auc']:.5f}"
         hist.append(row)
         state = snapshot(au, aucs, ep)
         if au > best:
@@ -473,7 +576,9 @@ def main():
             picked["best weak"] = {"epoch": ep, "gold": au, "weak": weak}
             save_variant("_bestweak", state, P, Y, Po, Yo)
         if weak is not None:
-            extra = f" | fold-{a.fold} weak AUC {weak:.5f} (best {best_weak:.5f})"
+            extra = (
+                f" | fold-{a.fold} weak AUC {weak:.5f} (best {best_weak:.5f})" + extra
+            )
         if len(topk) < max(1, a.topk) or au > min(t["gold_auc"] for t in topk):
             topk.append(state)
             topk.sort(key=lambda t: -t["gold_auc"])
@@ -532,6 +637,25 @@ def main():
             line += f" | fold-{a.fold} weak AUC {macro_auc(Yo, Po)[0]:.5f}"
         save_variant("_swa", swa_state, P, Y, Po, Yo)
         print(line, flush=True)
+
+    if ema_float:
+        floats = iter(ema_float)
+        others = iter(ema_other)
+        ema_sd = {
+            k: (next(floats) if v.is_floating_point() else next(others))
+            for k, v in model.state_dict().items()
+        }
+        model.load_state_dict(ema_sd)
+        P, Y = predict(vl)
+        au_ema, aucs_ema = macro_auc(Y, P)
+        Po = Yo = None
+        line = f"EMA (decay {a.ema}) | gold AUC {au_ema:.4f}"
+        if ol is not None:
+            Po, Yo = predict(ol)
+            line += f" | fold-{a.fold} weak AUC {macro_auc(Yo, Po)[0]:.5f}"
+        save_variant("_ema", snapshot(au_ema, aucs_ema, f"ema{a.ema}"), P, Y, Po, Yo)
+        print(line, flush=True)
+
 
 if __name__ == "__main__":
     main()
