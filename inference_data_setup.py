@@ -1,5 +1,52 @@
 import numpy as np
 import torch, torch.nn as nn, torch.nn.functional as F
+import argparse
+import json
+import math
+import os
+import random
+import re
+import time
+from pathlib import Path
+import os, sys, glob, time, json, gc
+
+import h5py
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from sklearn.metrics import roc_auc_score
+from torch.utils.data import DataLoader, Dataset
+from torchvision.models import densenet121
+
+
+DATA = Path(__file__).resolve().parent.parent / "data"
+CORPUS_DIR = DATA / "raptor_corpus"
+OUTPUT = DATA / "raptor_densenet_runs"
+DENSENET_H5 = DATA / "weights" / "RadImageNet-DenseNet121_notop.h5"
+SOFT_LABELS = DATA / "labels" / "labels_llm_soft.parquet"
+AGREEMENT_WEIGHTS = DATA / "labels" / "labels_llm_weights.parquet"
+FOLD_FILE = DATA / "labels" / "folds.json"
+TRAIN_CSV = DATA / "competition" / "train.csv"
+
+LAB = [
+    "ACL",
+    "MCL",
+    "Medial Meniscus",
+    "Lateral Meniscus",
+    "Medial OA",
+    "Lateral OA",
+    "PF OA",
+    "Effusion",
+    "Synovitis",
+    "Baker's",
+    "Contusion",
+    "Fracture",
+]
+TOKEN_DIM = 1024
+KERAS_BGR_MEAN = (103.939, 116.779, 123.68)
+KERAS_BATCHNORM_EPSILON = 1.001e-5
 
 SLOTS = [
     ("Sagittal", 1, 18),
@@ -12,8 +59,27 @@ IMG = 336
 MAXS = sum(s[2] for s in SLOTS)  # 64
 
 
+class RadImageNetBackbone(nn.Module):
+    num_features = TOKEN_DIM
+
+    def __init__(self, weights, grad_ckpt):
+        super().__init__()
+        self.features = densenet121(weights=None, memory_efficient=grad_ckpt).features
+        for module in self.features.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.eps = KERAS_BATCHNORM_EPSILON
+        if weights:
+            self.features.load_state_dict(weights, strict=True)
+        self.register_buffer(
+            "mean", torch.tensor(KERAS_BGR_MEAN).view(1, 3, 1, 1) / 255.0
+        )
+
+    def forward(self, x):
+        return F.relu(self.features(x - self.mean)).mean(dim=(2, 3))
+
+
 class RaptorClassifier(nn.Module):
-    def __init__(self, backbone, F_dim=768, n=12, drop=0.2):
+    def __init__(self, backbone, F_dim, n=12, drop=0.2):
         super().__init__()
         self.backbone = backbone
         self.norm = nn.LayerNorm(F_dim)
@@ -27,26 +93,25 @@ class RaptorClassifier(nn.Module):
 
     def encode(self, x):
         B, K = x.shape[:2]
-        f = self.backbone(x.flatten(0, 1))
-        return f.view(B, K, -1)
+        return self.backbone(x.flatten(0, 1)).view(B, K, -1)
 
     def head(self, feats):
         h = self.norm(feats)
-        a = self.att(h)
-        a = torch.softmax(a, dim=1)
+        a = torch.softmax(self.att(h), dim=1)
         pooled = torch.einsum("bkn,bkf->bnf", a, h)
-        logits = (pooled * self.clsW).sum(-1) + self.clsb
-        return logits
+        return (pooled * self.clsW).sum(-1) + self.clsb
 
     def forward(self, x):
         return self.head(self.encode(x))
 
 
-def load_model(pt_path, arch_default, res_default, device, ngpu=1):
-    ck = torch.load(pt_path, map_location="cpu", weights_only=False)
+def load_models(pt_path, arch_default, res_default, device, ngpu=1):
+    ck = torch.load(
+        pt_path, map_location="cpu", weights_only=False
+    )  # i dont like this abbreviation of checkpoint :(
     arch = ck.get("arch", arch_default)
     ck_res = int(ck.get("res", res_default))
-    bb = build_backbone(arch, pretrained=False)
+    bb = RadImageNetBackbone(None, False)
     model = RaptorClassifier(bb, F_dim=bb.num_features)
     model.load_state_dict(ck["model"], strict=True)
     model.eval().to(device)
