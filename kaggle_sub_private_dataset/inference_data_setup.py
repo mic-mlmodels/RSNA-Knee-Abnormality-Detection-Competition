@@ -1,34 +1,23 @@
-import numpy as np
-import torch, torch.nn as nn, torch.nn.functional as F
-import argparse
-import json
-import math
-import os
-import random
-import re
-import time
+import gc
+import glob
 from pathlib import Path
-import os, sys, glob, time, json, gc
 
-import h5py
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.metrics import roc_auc_score
-from torch.utils.data import DataLoader, Dataset
 from torchvision.models import densenet121
 
 
-DATA = Path(__file__).resolve().parent.parent / "data"
-CORPUS_DIR = DATA / "raptor_corpus"
-OUTPUT = DATA / "raptor_densenet_runs"
-DENSENET_H5 = DATA / "weights" / "RadImageNet-DenseNet121_notop.h5"
-SOFT_LABELS = DATA / "labels" / "labels_llm_soft.parquet"
-AGREEMENT_WEIGHTS = DATA / "labels" / "labels_llm_weights.parquet"
-FOLD_FILE = DATA / "labels" / "folds.json"
-TRAIN_CSV = DATA / "competition" / "train.csv"
+FOLD_FILES = [
+    "raptor_ft_fold0_e96_aug_swa.pt",
+    "raptor_ft_fold1_e64_aug_swa.pt",
+    "raptor_ft_fold2_e64_aug_swa.pt",
+    "raptor_ft_fold3_e128_aug_swa.pt",
+    "raptor_ft_fold4_e96_aug_swa.pt",
+]
+K_EVAL = 24
 
 LAB = [
     "ACL",
@@ -106,25 +95,75 @@ class RaptorClassifier(nn.Module):
         return self.head(self.encode(x))
 
 
-def load_densenet(pt_path, arch_default, res_default, device, ngpu=1):
-    ck = torch.load(
-        pt_path, map_location="cpu", weights_only=False
-    )  # i dont like this abbreviation of checkpoint :(
-    ck_res = int(ck.get("res", res_default))
+def load_densenet(pt_path, device):
+    checkpoint = torch.load(pt_path, map_location="cpu", weights_only=False)
+    res = int(checkpoint.get("res", IMG))
+    if res != IMG:
+        raise ValueError(f"{pt_path} was trained at {res} px but stacks are built at {IMG} px")
     bb = RadImageNetBackbone(None, False)
     model = RaptorClassifier(bb, F_dim=bb.num_features)
-    model.load_state_dict(ck["model"], strict=True)
+    model.load_state_dict(checkpoint["model"], strict=True)
     model.eval().to(device)
-    # NOTE: DataParallel removed on purpose. On the full hidden test it drove a system-RAM OOM
-    # (per-forward module replication over many studies); a single T4 handles K_EVAL=24 windows
-    # fine. Arms are also run SEQUENTIALLY (see main) so peak RAM == one model, not two.
-    del ck
+    del checkpoint
     gc.collect()
-    return model, ck_res
+    return model
 
 
-def load_all_finetuned():
-    fold_0_densenet = load_densenet(pt_path=)
+def load_all_finetuned(weights_dir, device):
+    return [load_densenet(Path(weights_dir) / name, device) for name in FOLD_FILES]
+
+
+def eval_windows(vol, mask, k=K_EVAL):
+    depth = vol.shape[0]
+    valid = np.where(mask > 0)[0]
+    if len(valid) < 3:
+        valid = np.arange(min(3, depth))
+    lo, hi = int(valid.min()), int(valid.max())
+    centers = list(range(lo + 1, hi))
+    if not centers:
+        centers = [max(1, min((lo + hi) // 2, depth - 2))]
+    picks = np.linspace(0, len(centers) - 1, k).round().astype(int)
+    tiles = []
+    for i in picks:
+        c = max(1, min(centers[i], depth - 2))
+        tiles.append(np.stack([vol[c - 1], vol[c], vol[c + 1]], 0))
+    return torch.from_numpy(np.stack(tiles).astype(np.float32) / 255.0)
+
+
+@torch.no_grad()
+def predict_study(models, vol, mask, device, amp_dtype=None):
+    x = eval_windows(vol, mask).unsqueeze(0).to(device)
+    device_type = torch.device(device).type
+    out = []
+    for model in models:
+        with torch.autocast(device_type, dtype=amp_dtype, enabled=amp_dtype is not None):
+            logits = model(x)
+        out.append(torch.sigmoid(logits.float())[0].cpu().numpy())
+    return np.stack(out)
+
+
+def predict_test(data_root, weights_dir, device, amp_dtype=None, series_dir="test_series"):
+    data_root = Path(data_root)
+    test = pd.read_csv(data_root / "test.csv", dtype={"StudyInstanceUID": str})
+    series = pd.read_csv(
+        data_root / "test_series.csv",
+        dtype={"StudyInstanceUID": str, "SeriesInstanceUID": str},
+    )
+    records = {
+        k: v.to_dict("records") for k, v in series.groupby("StudyInstanceUID", sort=False)
+    }
+    models = load_all_finetuned(weights_dir, device)
+    reader = _make_reader()
+    ids = test["StudyInstanceUID"].tolist()
+    probs = np.zeros((len(models), len(ids), len(LAB)), np.float32)
+    for i, sid in enumerate(ids):
+        vol, mask = build_study(sid, records, str(data_root / series_dir), reader)
+        probs[:, i] = predict_study(models, vol, mask, device, amp_dtype)
+    return ids, probs
+
+
+def combine_folds(ids, probs):
+    return pd.DataFrame(probs.mean(0), index=pd.Index(ids, name="StudyInstanceUID"), columns=LAB)
 
 
 def _make_reader():

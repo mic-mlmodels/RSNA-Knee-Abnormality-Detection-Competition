@@ -1,0 +1,9 @@
+{
+  "title": "RSNA Knee Fine-Tuned DenseNet Folds",
+  "id": "micmlmodels/rsna-knee-fine-tuned-densenet-folds",
+  "licenses": [
+    {
+      "name": "CC0-1.0"
+    }
+  ]
+}
