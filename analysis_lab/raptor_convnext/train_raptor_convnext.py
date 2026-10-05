@@ -99,7 +99,8 @@ def open_ids(corpus_dir):
 
 class StudyWindows(Dataset):
     def __init__(
-        self, corpus_dir, ids, id2row, labels, res, k, train, aug=True, weights=None
+        self, corpus_dir, ids, id2row, labels, res, k, train, aug=True, weights=None,
+        mirror=False,
     ):
         self.corpus_dir = corpus_dir
         self.ids = ids
@@ -107,6 +108,7 @@ class StudyWindows(Dataset):
         self.labels = labels
         self.weights = weights or {}
         self.res, self.k, self.train, self.aug = res, k, train, aug
+        self.mirror = mirror
         self.vols = None
         self.masks = None
 
@@ -148,10 +150,13 @@ class StudyWindows(Dataset):
             valid = np.arange(min(3, self._D))
         cs = self._centers(valid, self.k)
         vol = self.vols[row]
+        flip = self.train and self.mirror and random.random() < 0.5
         tiles = []
         for c in cs:
             c = max(1, min(c, self._D - 2))
             tri = np.stack([vol[c - 1], vol[c], vol[c + 1]], 0).astype(np.float32)
+            if flip:
+                tri = mirror_window(tri, c)
             tiles.append(self._resize(tri / 255.0))
         x = torch.from_numpy(np.stack(tiles, 0))
         if self.train and self.aug:
@@ -161,6 +166,57 @@ class StudyWindows(Dataset):
         if w is None:
             w = np.ones(len(LAB), np.float32)
         return x, torch.from_numpy(self.labels[uid]), torch.from_numpy(w)
+
+
+SAGITTAL_END = 22
+
+
+def mirror_window(tri, center):
+    if center < SAGITTAL_END:
+        return tri[::-1].copy()
+    return tri[:, :, ::-1].copy()
+
+
+def intensity_augment(x, p=0.5):
+    b, k, c, h, w = x.shape
+    dev = x.device
+
+    def per_study(lo, hi):
+        return torch.empty(b, 1, 1, 1, 1, device=dev).uniform_(lo, hi)
+
+    def chosen():
+        return (torch.rand(b, 1, 1, 1, 1, device=dev) < p).float()
+
+    out = x.clone()
+    for i in range(b):
+        if random.random() < p:
+            f = random.uniform(0.6, 1.0)
+            small = F.interpolate(
+                out[i], scale_factor=f, mode="bilinear", align_corners=False,
+                recompute_scale_factor=False,
+            )
+            out[i] = F.interpolate(small, size=(h, w), mode="bilinear", align_corners=False)
+
+    ys = torch.linspace(-1, 1, h, device=dev).view(1, 1, 1, h, 1)
+    xs = torch.linspace(-1, 1, w, device=dev).view(1, 1, 1, 1, w)
+    phi = per_study(0, 2 * math.pi)
+    strength = per_study(0, 0.15) * chosen()
+    out = out * (1 + strength * (torch.cos(phi) * xs + torch.sin(phi) * ys))
+
+    gamma = torch.exp(per_study(-0.3, 0.3) * chosen())
+    out = out.clamp(0, 1) ** gamma
+
+    contrast = 1 + per_study(-0.1, 0.1) * chosen()
+    mean = out.mean(dim=(2, 3, 4), keepdim=True)
+    out = (out - mean) * contrast + mean
+
+    sigma = per_study(0, 0.03) * chosen()
+    out = out + sigma * torch.randn_like(out)
+    return out.clamp(0, 1)
+
+
+def ghost_augment(x):
+    raise NotImplementedError
 
 
 def collate(batch):
@@ -273,6 +329,9 @@ def main():
     ap.add_argument("--rotate_deg", type=float, default=10.0)
     ap.add_argument("--scale", type=float, default=0.10)
     ap.add_argument("--shift", type=float, default=0.05)
+    ap.add_argument("--intensity_aug", action="store_true")
+    ap.add_argument("--mirror_aug", action="store_true")
+    ap.add_argument("--ghost_aug", action="store_true")
     ap.add_argument("--agreement_weights", action="store_true")
     ap.add_argument("--agreement_file", default=str(AGREEMENT_WEIGHTS))
     ap.add_argument("--train_eval", type=int, default=500)
@@ -288,7 +347,8 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     print(
         f"device {dev} | res {a.res} | k {a.k}/{a.k_eval} | bs {a.bs} | tag {a.tag} | "
-        f"geo_aug {a.geo_aug} | agreement_weights {a.agreement_weights}",
+        f"geo_aug {a.geo_aug} | intensity_aug {a.intensity_aug} | mirror_aug {a.mirror_aug} | "
+        f"ghost_aug {a.ghost_aug} | agreement_weights {a.agreement_weights}",
         flush=True,
     )
 
@@ -353,6 +413,7 @@ def main():
             k,
             train,
             weights=label_weights if train else None,
+            mirror=a.mirror_aug,
         )
 
     def eval_loader(study_ids, generator=None):
@@ -483,6 +544,10 @@ def main():
             x, y = x.to(dev, non_blocking=True), y.to(dev, non_blocking=True)
             if a.geo_aug:
                 x = geometric_augment(x, a.rotate_deg, a.scale, a.shift)
+            if a.intensity_aug:
+                x = intensity_augment(x)
+            if a.ghost_aug:
+                x = ghost_augment(x)
             opt.zero_grad()
             with torch.autocast(dev, dtype=torch.bfloat16, enabled=dev == "cuda"):
                 logits = model(x)
