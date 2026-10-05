@@ -108,7 +108,7 @@
 #   * the outer CoAtNet default rose from 0.60 to 0.65.
 import os
 
-PRESET = os.environ.get("RSNA_PRESET", "parent")
+PRESET = os.environ.get("RSNA_PRESET", "speedy")
 
 RUN = {
     # --- stage 2: A5 attention folds against the DINO base ------------------
@@ -6899,6 +6899,104 @@ assert _ke_theirs[_KE_LAB].notna().all().all(), "study identity drift"
 
 _ke_tr = _ke_ours[_KE_LAB].rank(method="average", pct=True)
 _ke_cr = _ke_theirs[_KE_LAB].copy()
+_dn_weight = float(_ke_os.environ.get("RSNA_DENSENET_W", "0.25"))
+if _dn_weight > 0:
+    import sys as _dn_sys
+
+    _dn_dir = next(
+        (
+            _KePath(_dn_path)
+            for _dn_path in (
+                "/kaggle/input/datasets/micmlmodels/rsna-knee-fine-tuned-densenet-folds",
+                "/kaggle/input/rsna-knee-fine-tuned-densenet-folds",
+            )
+            if (_KePath(_dn_path) / "inference_data_setup.py").exists()
+        ),
+        None,
+    )
+    if _dn_dir is None:
+        raise RuntimeError("fine-tuned DenseNet fold dataset is not attached")
+    _dn_sys.path.insert(0, str(_dn_dir))
+    import inference_data_setup as _dn
+
+    if sorted(_dn.LAB) != sorted(_KE_LAB):
+        raise RuntimeError("DenseNet finding names differ from the pipeline's")
+    _dn_t0 = _ke_time.time()
+    _ke_gc.collect()
+    _dn_device, _dn_amp = "cpu", None
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        _dn_free = [
+            torch.cuda.mem_get_info(_dn_gpu)[0]
+            for _dn_gpu in range(torch.cuda.device_count())
+        ]
+        _dn_device, _dn_amp = f"cuda:{int(_ke_np.argmax(_dn_free))}", torch.float16
+    _dn_models = _dn.load_all_finetuned(_dn_dir, _dn_device)
+    _dn_series = _ke_pd.read_csv(
+        COMP / "test_series.csv",
+        dtype={"StudyInstanceUID": str, "SeriesInstanceUID": str},
+    )
+    _dn_records = {
+        _dn_key: _dn_rows.to_dict("records")
+        for _dn_key, _dn_rows in _dn_series.groupby("StudyInstanceUID", sort=False)
+    }
+    _dn_series_dir = COMP / "test_series"
+    if not _dn_series_dir.is_dir():
+        _dn_series_dir = COMP / "test_images"
+    _dn_reader = _dn._make_reader()
+    _dn_ids = _ke_ours["StudyInstanceUID"].astype(str).tolist()
+
+    def _dn_build(_dn_sid):
+        try:
+            return _dn.build_study(_dn_sid, _dn_records, str(_dn_series_dir), _dn_reader)
+        except Exception as _dn_error:
+            print(f"[densenet] stack failed for {_dn_sid}: {_dn_error!r}", flush=True)
+            return None
+
+    _dn_probs = _ke_np.full((len(_dn_ids), len(_dn.LAB)), _ke_np.nan, _ke_np.float32)
+    _dn_precision_gap = None
+    with _KeThreadPool(max_workers=4) as _dn_pool:
+        for _dn_start in range(0, len(_dn_ids), 16):
+            _dn_chunk = _dn_ids[_dn_start : _dn_start + 16]
+            for _dn_offset, _dn_stack in enumerate(_dn_pool.map(_dn_build, _dn_chunk)):
+                if _dn_stack is None or int(_dn_stack[1].sum()) < 3:
+                    continue
+                try:
+                    _dn_out = _dn.predict_study(
+                        _dn_models, _dn_stack[0], _dn_stack[1], _dn_device, _dn_amp
+                    )
+                    if _dn_precision_gap is None and _dn_amp is not None:
+                        _dn_full = _dn.predict_study(
+                            _dn_models, _dn_stack[0], _dn_stack[1], _dn_device, None
+                        )
+                        _dn_precision_gap = float(_ke_np.abs(_dn_out - _dn_full).max())
+                    _dn_probs[_dn_start + _dn_offset] = _dn_out.mean(0)
+                except Exception as _dn_error:
+                    print(
+                        f"[densenet] prediction failed for {_dn_chunk[_dn_offset]}: {_dn_error!r}",
+                        flush=True,
+                    )
+    del _dn_models
+    _ke_gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    _dn_frame = _ke_pd.DataFrame(_dn_probs, columns=_dn.LAB)[_KE_LAB]
+    _dn_out_frame = _dn_frame.copy()
+    _dn_out_frame.insert(0, "StudyInstanceUID", _dn_ids)
+    _dn_out_frame.to_csv("/kaggle/working/_densenet.csv", index=False)
+    _dn_rank = _dn_frame.rank(method="average", pct=True).to_numpy()
+    _dn_ok = _ke_np.isfinite(_dn_rank)
+    _dn_base = _ke_tr.to_numpy()
+    _dn_mixed = (1.0 - _dn_weight) * _dn_base + _dn_weight * _ke_np.nan_to_num(_dn_rank)
+    _ke_tr = _ke_pd.DataFrame(
+        _ke_np.where(_dn_ok, _dn_mixed, _dn_base), columns=_KE_LAB, index=_ke_tr.index
+    ).rank(method="average", pct=True)
+    print(
+        f"[densenet] {int(_dn_ok.all(1).sum())}/{len(_dn_ids)} studies predicted on {_dn_device} "
+        f"in {_ke_time.time() - _dn_t0:.0f}s; weight {_dn_weight} of the transformer side; "
+        f"float16 vs float32 max difference on the first study: {_dn_precision_gap}",
+        flush=True,
+    )
 _blend_transformer = _ke_ours.copy()
 _blend_coatnet = _ke_theirs.copy()
 _blend_labels = list(_KE_LAB)
