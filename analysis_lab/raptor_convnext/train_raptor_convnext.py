@@ -215,23 +215,23 @@ def intensity_augment(x, p=0.5):
     return out.clamp(0, 1)
 
 
-def ghost_augment(x, p=0.5, max_shift=0.25, strength=(0.02, 0.10), copies=(1, 3)):
-    b, k, c, h, w = x.shape
-    dev = x.device
-    flat = x.flatten(0, 1)
-    out = flat.clone()
-    n_copies = torch.randint(copies[0], copies[1] + 1, (b,), device=dev)
-    n_copies = n_copies * (torch.rand(b, device=dev) < p)
-    eye = torch.eye(2, device=dev).expand(b * k, 2, 2)
-    for j in range(int(n_copies.max())):
-        active = (n_copies > j).float()
-        shift = (torch.rand(b, 2, device=dev) * 2 - 1) * 2 * max_shift
-        weight = torch.empty(b, device=dev).uniform_(*strength) * active
-        theta = torch.cat([eye, shift.repeat_interleave(k, 0).unsqueeze(-1)], 2)
-        grid = F.affine_grid(theta, list(flat.shape), align_corners=False)
-        ghost = F.grid_sample(flat, grid, mode="bilinear", padding_mode="zeros", align_corners=False)
-        out = out + weight.repeat_interleave(k).view(-1, 1, 1, 1) * ghost
-    return out.clamp(0, 1).view(b, k, c, h, w)
+def ghost_augment(x, p=0.5, ghosts=(2, 8), intensity=(0.2, 0.7), restore=0.02):
+    out = x.clone()
+    for i in range(x.shape[0]):
+        if random.random() >= p:
+            continue
+        axis = random.choice((-2, -1))
+        n = random.randint(*ghosts)
+        size = x.shape[axis]
+        scale = torch.ones(size, device=x.device)
+        scale[::n] = 1 - random.uniform(*intensity)
+        r = max(1, int(size * restore / 2))
+        scale[size // 2 - r : size // 2 + r + 1] = 1
+        scale = scale.view(-1, 1) if axis == -2 else scale.view(1, -1)
+        kspace = torch.fft.fftshift(torch.fft.fft2(out[i].float()), dim=(-2, -1))
+        kspace = torch.fft.ifftshift(kspace * scale, dim=(-2, -1))
+        out[i] = torch.fft.ifft2(kspace).abs().to(out.dtype)
+    return out.clamp(0, 1)
 
 
 def collate(batch):
