@@ -105,11 +105,10 @@ class RaptorClassifier(nn.Module):
         return self.head(self.encode(x))
 
 
-def load_models(pt_path, arch_default, res_default, device, ngpu=1):
+def load_densenet(pt_path, arch_default, res_default, device, ngpu=1):
     ck = torch.load(
         pt_path, map_location="cpu", weights_only=False
     )  # i dont like this abbreviation of checkpoint :(
-    arch = ck.get("arch", arch_default)
     ck_res = int(ck.get("res", res_default))
     bb = RadImageNetBackbone(None, False)
     model = RaptorClassifier(bb, F_dim=bb.num_features)
@@ -121,6 +120,10 @@ def load_models(pt_path, arch_default, res_default, device, ngpu=1):
     del ck
     gc.collect()
     return model, ck_res
+
+
+def load_all_finetuned():
+    fold_0_densenet = load_densenet(pt_path=)
 
 
 def _pick_series_for_slot(rows, plane, fluid, used):
