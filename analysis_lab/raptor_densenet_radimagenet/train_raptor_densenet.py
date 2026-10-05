@@ -348,7 +348,9 @@ def main():
     ids = open_ids(a.corpus_dir)
     id2row = {u: i for i, u in enumerate(ids)}
     idset = set(ids)
-    tr = pd.read_csv(find_file(a.train_csv, "train.csv"), dtype={"StudyInstanceUID": str})
+    tr = pd.read_csv(
+        find_file(a.train_csv, "train.csv"), dtype={"StudyInstanceUID": str}
+    )
     gold_df = tr[tr[LAB].notna().all(axis=1)].copy().set_index("StudyInstanceUID")
     gold_ids = [u for u in gold_df.index if u in idset]
     soft = pd.read_parquet(find_file(a.labels, "labels_llm_soft.parquet"))
@@ -494,7 +496,9 @@ def main():
 
     def snapshot(gold_auc, aucs, epoch):
         return {
-            "model": {k: v.detach().cpu().clone() for k, v in model.state_dict().items()},
+            "model": {
+                k: v.detach().cpu().clone() for k, v in model.state_dict().items()
+            },
             "gold_auc": gold_auc,
             "aucs": aucs,
             "src": src,

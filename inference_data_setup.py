@@ -1,4 +1,5 @@
 import numpy as np
+import torch, torch.nn as nn, torch.nn.functional as F
 
 SLOTS = [
     ("Sagittal", 1, 18),
@@ -9,6 +10,52 @@ SLOTS = [
 ]
 IMG = 336
 MAXS = sum(s[2] for s in SLOTS)  # 64
+
+
+class RaptorClassifier(nn.Module):
+    def __init__(self, backbone, F_dim=768, n=12, drop=0.2):
+        super().__init__()
+        self.backbone = backbone
+        self.norm = nn.LayerNorm(F_dim)
+        self.att = nn.Sequential(
+            nn.Linear(F_dim, 256), nn.Tanh(), nn.Dropout(drop), nn.Linear(256, n)
+        )
+        self.clsW = nn.Parameter(torch.zeros(n, F_dim))
+        self.clsb = nn.Parameter(torch.zeros(n))
+        nn.init.trunc_normal_(self.clsW, std=0.02)
+        self.n = n
+
+    def encode(self, x):
+        B, K = x.shape[:2]
+        f = self.backbone(x.flatten(0, 1))
+        return f.view(B, K, -1)
+
+    def head(self, feats):
+        h = self.norm(feats)
+        a = self.att(h)
+        a = torch.softmax(a, dim=1)
+        pooled = torch.einsum("bkn,bkf->bnf", a, h)
+        logits = (pooled * self.clsW).sum(-1) + self.clsb
+        return logits
+
+    def forward(self, x):
+        return self.head(self.encode(x))
+
+
+def load_model(pt_path, arch_default, res_default, device, ngpu=1):
+    ck = torch.load(pt_path, map_location="cpu", weights_only=False)
+    arch = ck.get("arch", arch_default)
+    ck_res = int(ck.get("res", res_default))
+    bb = build_backbone(arch, pretrained=False)
+    model = RaptorClassifier(bb, F_dim=bb.num_features)
+    model.load_state_dict(ck["model"], strict=True)
+    model.eval().to(device)
+    # NOTE: DataParallel removed on purpose. On the full hidden test it drove a system-RAM OOM
+    # (per-forward module replication over many studies); a single T4 handles K_EVAL=24 windows
+    # fine. Arms are also run SEQUENTIALLY (see main) so peak RAM == one model, not two.
+    del ck
+    gc.collect()
+    return model, ck_res
 
 
 def _pick_series_for_slot(rows, plane, fluid, used):
