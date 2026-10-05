@@ -49,14 +49,15 @@ KERAS_BGR_MEAN = (103.939, 116.779, 123.68)
 KERAS_BATCHNORM_EPSILON = 1.001e-5
 
 SLOTS = [
-    ("Sagittal", 1, 18),
-    ("Sagittal", 0, 14),
-    ("Coronal", 1, 12),
-    ("Coronal", 0, 8),
-    ("Axial", -1, 12),
+    ("Sagittal", 1, 12),
+    ("Sagittal", 0, 10),
+    ("Coronal", 1, 8),
+    ("Coronal", 0, 6),
+    ("Axial", -1, 8),
 ]
 IMG = 336
-MAXS = sum(s[2] for s in SLOTS)  # 64
+CROP_MM = 140.0
+MAXS = sum(s[2] for s in SLOTS)
 
 
 class RadImageNetBackbone(nn.Module):
@@ -126,6 +127,55 @@ def load_all_finetuned():
     fold_0_densenet = load_densenet(pt_path=)
 
 
+def _make_reader():
+    import pydicom, cv2
+    from pydicom.pixel_data_handlers.util import apply_modality_lut
+
+    def order_and_meta(sdir):
+        fs = glob.glob(sdir + "/*.dcm")
+        recs = []
+        ps_list = []
+        for f in fs:
+            try:
+                h = pydicom.dcmread(f, stop_before_pixels=True)
+                iop = getattr(h, "ImageOrientationPatient", None)
+                ipp = getattr(h, "ImagePositionPatient", None)
+                if iop is not None and ipp is not None and len(iop) == 6:
+                    r = np.array(iop[:3], float)
+                    c = np.array(iop[3:], float)
+                    n = np.cross(r, c)
+                    pos = float(np.dot(np.array(ipp, float), n))
+                else:
+                    pos = float(getattr(h, "InstanceNumber", 0) or 0)
+                ps = getattr(h, "PixelSpacing", None)
+                ps = float(ps[0]) if ps is not None else 0.5
+                ps_list.append(ps)
+                recs.append((pos, f, ps))
+            except Exception:
+                recs.append((0.0, f, 0.5))
+        recs.sort(key=lambda x: x[0])
+        med_ps = float(np.median(ps_list)) if ps_list else 0.5
+        return [(f, ps) for _, f, ps in recs], med_ps
+
+    def read_px(f):
+        d = pydicom.dcmread(f)
+        a = apply_modality_lut(d.pixel_array, d).astype(np.float32)
+        if str(getattr(d, "PhotometricInterpretation", "")) == "MONOCHROME1":
+            a = a.max() - a
+        return a
+
+    def mm_crop_resize(a, ps):
+        h, w = a.shape
+        cpx = int(round(CROP_MM / max(ps, 1e-3)))
+        cpx = min(cpx, min(h, w))
+        y0 = (h - cpx) // 2
+        x0 = (w - cpx) // 2
+        a = a[y0 : y0 + cpx, x0 : x0 + cpx]
+        return cv2.resize(a, (IMG, IMG), interpolation=cv2.INTER_AREA)
+
+    return order_and_meta, read_px, mm_crop_resize
+
+
 def _pick_series_for_slot(rows, plane, fluid, used):
     cands = [
         r
@@ -155,11 +205,8 @@ def build_study(sid, ser_records, tsdir, reader):
         if not files:
             idx += k
             continue
-        # wide span: the collateral ligaments and lateral meniscus live in the
-        # peripheral slices the old 0.15-0.85 crop threw away. Must match the corpus
-        # the weights were trained on (knee_corpus_v2.py, SPAN_LO/SPAN_HI).
         n = len(files)
-        lo, hi = int(n * 0.06), int(n * 0.94) - 1
+        lo, hi = int(n * 0.15), int(n * 0.85) - 1
         hi = max(hi, lo)
         picks = np.linspace(lo, hi, k).round().astype(int) if n > 1 else [0] * k
         arrs = []
