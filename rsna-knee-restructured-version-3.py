@@ -6899,7 +6899,7 @@ assert _ke_theirs[_KE_LAB].notna().all().all(), "study identity drift"
 
 _ke_tr = _ke_ours[_KE_LAB].rank(method="average", pct=True)
 _ke_cr = _ke_theirs[_KE_LAB].copy()
-_dn_weight = float(_ke_os.environ.get("RSNA_DENSENET_W", "0.25"))
+_dn_weight = float(_ke_os.environ.get("RSNA_DENSENET_W", "0"))
 if _dn_weight > 0:
     import sys as _dn_sys
 
@@ -7013,6 +7013,185 @@ _blend_output[_blend_labels] = _blend_output[_blend_labels].rank(
     method="average", pct=True
 )
 assert _ke_np.isfinite(_blend_output[_blend_labels].to_numpy(_ke_np.float64)).all()
+_cx_weight = float(_ke_os.environ.get("RSNA_CONVNEXT_W", "0"))
+if _cx_weight > 0:
+    import sys as _cx_sys
+
+    _cx_dir = next(
+        (
+            _KePath(_cx_path)
+            for _cx_path in (
+                "/kaggle/input/datasets/micmlmodels/rsna-knee-convnext-ghost-folds",
+                "/kaggle/input/rsna-knee-convnext-ghost-folds",
+            )
+            if (_KePath(_cx_path) / "inference_convnext.py").exists()
+        ),
+        None,
+    )
+    if _cx_dir is None:
+        raise RuntimeError("ConvNeXt fold dataset is not attached")
+    _cx_sys.path.insert(0, str(_cx_dir))
+    import inference_convnext as _cx
+
+    if sorted(_cx.LAB) != sorted(_blend_labels):
+        raise RuntimeError("ConvNeXt finding names differ from the pipeline's")
+    _cx_t0 = _ke_time.time()
+    _ke_gc.collect()
+    _cx_device, _cx_amp = "cpu", None
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        _cx_free = [
+            torch.cuda.mem_get_info(_cx_gpu)[0]
+            for _cx_gpu in range(torch.cuda.device_count())
+        ]
+        _cx_device, _cx_amp = f"cuda:{int(_ke_np.argmax(_cx_free))}", torch.float16
+    _cx_models = _cx.load_all_finetuned(_cx_dir, _cx_device)
+    _cx_series = _ke_pd.read_csv(
+        COMP / "test_series.csv",
+        dtype={"StudyInstanceUID": str, "SeriesInstanceUID": str},
+    )
+    _cx_records = {
+        _cx_key: _cx_rows.to_dict("records")
+        for _cx_key, _cx_rows in _cx_series.groupby("StudyInstanceUID", sort=False)
+    }
+    _cx_series_dir = COMP / "test_series"
+    if not _cx_series_dir.is_dir():
+        _cx_series_dir = COMP / "test_images"
+    _cx_reader = _cx._make_reader()
+    _cx_ids = _blend_output["StudyInstanceUID"].astype(str).tolist()
+
+    def _cx_build(_cx_sid):
+        try:
+            return _cx.build_study(_cx_sid, _cx_records, str(_cx_series_dir), _cx_reader)
+        except Exception as _cx_error:
+            print(f"[convnext] stack failed for {_cx_sid}: {_cx_error!r}", flush=True)
+            return None
+
+    _cx_probs = _ke_np.full((len(_cx_ids), len(_cx.LAB)), _ke_np.nan, _ke_np.float32)
+    _cx_precision_gap = None
+    with _KeThreadPool(max_workers=4) as _cx_pool:
+        for _cx_start in range(0, len(_cx_ids), 16):
+            _cx_chunk = _cx_ids[_cx_start : _cx_start + 16]
+            for _cx_offset, _cx_stack in enumerate(_cx_pool.map(_cx_build, _cx_chunk)):
+                if _cx_stack is None or int(_cx_stack[1].sum()) < 3:
+                    continue
+                try:
+                    _cx_out = _cx.predict_study(
+                        _cx_models, _cx_stack[0], _cx_stack[1], _cx_device, _cx_amp
+                    )
+                    if _cx_precision_gap is None and _cx_amp is not None:
+                        _cx_full = _cx.predict_study(
+                            _cx_models, _cx_stack[0], _cx_stack[1], _cx_device, None
+                        )
+                        _cx_precision_gap = float(_ke_np.abs(_cx_out - _cx_full).max())
+                    _cx_probs[_cx_start + _cx_offset] = _cx_out.mean(0)
+                except Exception as _cx_error:
+                    print(
+                        f"[convnext] prediction failed for {_cx_chunk[_cx_offset]}: {_cx_error!r}",
+                        flush=True,
+                    )
+    del _cx_models
+    _ke_gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    _cx_frame = _ke_pd.DataFrame(_cx_probs, columns=_cx.LAB)[_blend_labels]
+    _cx_out_frame = _cx_frame.copy()
+    _cx_out_frame.insert(0, "StudyInstanceUID", _cx_ids)
+    _cx_out_frame.to_csv("/kaggle/working/_convnext.csv", index=False)
+    _cx_rank = _cx_frame.rank(method="average", pct=True).to_numpy()
+    _cx_ok = _ke_np.isfinite(_cx_rank)
+    _cx_base = _blend_output[_blend_labels].to_numpy(_ke_np.float64)
+    _cx_mixed = (1.0 - _cx_weight) * _cx_base + _cx_weight * _ke_np.nan_to_num(_cx_rank)
+    _blend_output[_blend_labels] = _ke_pd.DataFrame(
+        _ke_np.where(_cx_ok, _cx_mixed, _cx_base),
+        columns=_blend_labels,
+        index=_blend_output.index,
+    ).rank(method="average", pct=True)
+    assert _ke_np.isfinite(_blend_output[_blend_labels].to_numpy(_ke_np.float64)).all()
+    print(
+        f"[convnext] {int(_cx_ok.all(1).sum())}/{len(_cx_ids)} studies predicted on {_cx_device} "
+        f"in {_ke_time.time() - _cx_t0:.0f}s; weight {_cx_weight} of the final blend; "
+        f"float16 vs float32 max difference on the first study: {_cx_precision_gap}",
+        flush=True,
+    )
+_rd_weight = float(_ke_os.environ.get("RSNA_READER_W", "0.30"))
+if _rd_weight > 0:
+    import glob as _rd_glob
+    import subprocess as _rd_sp
+    import sys as _rd_sys
+
+    _rd_t0 = _ke_time.time()
+    try:
+        _rd_dir = next(
+            (
+                _KePath(_rd_path)
+                for _rd_path in (
+                    "/kaggle/input/datasets/micmlmodels/rsna-knee-reader-ghost-folds",
+                    "/kaggle/input/rsna-knee-reader-ghost-folds",
+                )
+                if (_KePath(_rd_path) / "infer.py").exists()
+            ),
+            None,
+        )
+        if _rd_dir is None:
+            raise RuntimeError("reader fold dataset is not attached")
+        _rd_ckpts = sorted(str(_rd_p) for _rd_p in _rd_dir.glob("reader_ghost_fold*_e18.pt"))
+        if not _rd_ckpts:
+            raise RuntimeError("no reader checkpoints found")
+        _rd_env = dict(_ke_os.environ)
+        _rd_target = "/kaggle/working/_reader_env"
+        _rd_sp.run(
+            [_rd_sys.executable, "-m", "pip", "install", "-q", "--no-index", "--no-deps", "--target", _rd_target,
+             "--find-links", str(_rd_dir), "pylibjpeg", "pylibjpeg-libjpeg", "pylibjpeg-openjpeg"],
+            check=False,
+        )
+        _rd_timm = [
+            _rd_w
+            for _rd_pat in ("/kaggle/input/*/timm-*.whl", "/kaggle/input/*/*/timm-*.whl", "/kaggle/input/*/*/*/timm-*.whl", "/kaggle/input/*/*/*/*/timm-*.whl")
+            for _rd_w in _rd_glob.glob(_rd_pat)
+        ]
+        if _rd_timm:
+            _rd_sp.run(
+                [_rd_sys.executable, "-m", "pip", "install", "-q", "--no-deps", "--target", _rd_target, _rd_timm[0]],
+                check=False,
+            )
+        _rd_env["PYTHONPATH"] = (
+            _rd_target + _ke_os.pathsep + str(_rd_dir) + _ke_os.pathsep + _rd_env.get("PYTHONPATH", "")
+        )
+        _ke_gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            _rd_free = [torch.cuda.mem_get_info(_rd_gpu)[0] for _rd_gpu in range(torch.cuda.device_count())]
+            _rd_env["CUDA_VISIBLE_DEVICES"] = str(int(_ke_np.argmax(_rd_free)))
+            print("[reader] free GPU memory (GB)", [round(_rd_f / 1e9, 1) for _rd_f in _rd_free], flush=True)
+        _rd_out = "/kaggle/working/_reader.csv"
+        _rd_sp.run(
+            [_rd_sys.executable, str(_rd_dir / "infer.py"), str(COMP), "test", _rd_out] + _rd_ckpts,
+            check=True,
+            env=_rd_env,
+        )
+        _rd_own = _ke_pd.read_csv(_rd_out, dtype={"StudyInstanceUID": str}).set_index("StudyInstanceUID")
+        _rd_own = _rd_own.reindex(_blend_output["StudyInstanceUID"].astype(str))[_blend_labels]
+        if not _rd_own.notna().all().all():
+            raise RuntimeError("reader predictions are missing for some studies")
+        if len(_rd_own) > 3 and not (_rd_own.nunique() > 1).all():
+            raise RuntimeError("reader predictions are constant")
+        _rd_base = _blend_output[_blend_labels].to_numpy(_ke_np.float64)
+        _rd_rank = _rd_own.rank(method="average", pct=True).to_numpy()
+        _rd_mixed = _ke_pd.DataFrame(
+            (1.0 - _rd_weight) * _rd_base + _rd_weight * _rd_rank,
+            columns=_blend_labels,
+            index=_blend_output.index,
+        ).rank(method="average", pct=True)
+        assert _ke_np.isfinite(_rd_mixed.to_numpy(_ke_np.float64)).all()
+        _blend_output[_blend_labels] = _rd_mixed
+        print(
+            f"[reader] {len(_rd_own)}/{len(_blend_output)} studies predicted with {len(_rd_ckpts)} checkpoints "
+            f"in {_ke_time.time() - _rd_t0:.0f}s; weight {_rd_weight} of the final blend",
+            flush=True,
+        )
+    except Exception as _rd_error:
+        print(f"[reader] FAILED, the stack's predictions are kept: {_rd_error!r}", flush=True)
 _blend_output.to_csv(_ke_primary, index=False)
 
 # %% [markdown]

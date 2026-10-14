@@ -1,0 +1,269 @@
+import gc
+import glob
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import timm
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+FOLD_FILES = [f"raptor_ft_fold{f}_e36_aug_ghost_r384_swa.pt" for f in range(5)]
+K_EVAL = 24
+ARCH = "convnext_tiny"
+RES = 384
+
+LAB = [
+    "ACL",
+    "MCL",
+    "Medial Meniscus",
+    "Lateral Meniscus",
+    "Medial OA",
+    "Lateral OA",
+    "PF OA",
+    "Effusion",
+    "Synovitis",
+    "Baker's",
+    "Contusion",
+    "Fracture",
+]
+
+SLOTS = [
+    ("Sagittal", 1, 12),
+    ("Sagittal", 0, 10),
+    ("Coronal", 1, 8),
+    ("Coronal", 0, 6),
+    ("Axial", -1, 8),
+]
+IMG = 336
+CROP_MM = 140.0
+MAXS = sum(s[2] for s in SLOTS)
+
+
+class TimmBackbone(nn.Module):
+    def __init__(self, arch):
+        super().__init__()
+        self.model = timm.create_model(arch, pretrained=False, num_classes=0)
+        self.num_features = self.model.num_features
+        self.register_buffer("mean", torch.zeros(1, 3, 1, 1))
+        self.register_buffer("std", torch.ones(1, 3, 1, 1))
+
+    def forward(self, x):
+        return self.model((x - self.mean) / self.std)
+
+
+class RaptorClassifier(nn.Module):
+    def __init__(self, backbone, F_dim, n=12, drop=0.2):
+        super().__init__()
+        self.backbone = backbone
+        self.norm = nn.LayerNorm(F_dim)
+        self.att = nn.Sequential(
+            nn.Linear(F_dim, 256), nn.Tanh(), nn.Dropout(drop), nn.Linear(256, n)
+        )
+        self.clsW = nn.Parameter(torch.zeros(n, F_dim))
+        self.clsb = nn.Parameter(torch.zeros(n))
+        self.n = n
+
+    def encode(self, x):
+        B, K = x.shape[:2]
+        return self.backbone(x.flatten(0, 1)).view(B, K, -1)
+
+    def head(self, feats):
+        h = self.norm(feats)
+        a = torch.softmax(self.att(h), dim=1)
+        pooled = torch.einsum("bkn,bkf->bnf", a, h)
+        return (pooled * self.clsW).sum(-1) + self.clsb
+
+    def forward(self, x):
+        return self.head(self.encode(x))
+
+
+def load_convnext(pt_path, device):
+    checkpoint = torch.load(pt_path, map_location="cpu", weights_only=False)
+    res = int(checkpoint.get("res", RES))
+    if res != RES:
+        raise ValueError(f"{pt_path} was trained at {res} px but this module predicts at {RES} px")
+    arch = str(checkpoint.get("arch", ARCH)).split(".")[0]
+    bb = TimmBackbone(arch)
+    model = RaptorClassifier(bb, F_dim=bb.num_features)
+    model.load_state_dict(checkpoint["model"], strict=True)
+    model.eval().to(device)
+    del checkpoint
+    gc.collect()
+    return model
+
+
+def load_all_finetuned(weights_dir, device):
+    return [load_convnext(Path(weights_dir) / name, device) for name in FOLD_FILES]
+
+
+def eval_windows(vol, mask, k=K_EVAL):
+    depth = vol.shape[0]
+    valid = np.where(mask > 0)[0]
+    if len(valid) < 3:
+        valid = np.arange(min(3, depth))
+    lo, hi = int(valid.min()), int(valid.max())
+    centers = list(range(lo + 1, hi))
+    if not centers:
+        centers = [max(1, min((lo + hi) // 2, depth - 2))]
+    picks = np.linspace(0, len(centers) - 1, k).round().astype(int)
+    tiles = []
+    for i in picks:
+        c = max(1, min(centers[i], depth - 2))
+        tiles.append(np.stack([vol[c - 1], vol[c], vol[c + 1]], 0))
+    return torch.from_numpy(np.stack(tiles).astype(np.float32) / 255.0)
+
+
+@torch.no_grad()
+def predict_study(models, vol, mask, device, amp_dtype=None):
+    x = eval_windows(vol, mask).to(device)
+    if x.shape[-1] != RES:
+        x = F.interpolate(x, size=(RES, RES), mode="bilinear", align_corners=False)
+    x = x.unsqueeze(0)
+    device_type = torch.device(device).type
+    out = []
+    for model in models:
+        with torch.autocast(device_type, dtype=amp_dtype, enabled=amp_dtype is not None):
+            logits = model(x)
+        out.append(torch.sigmoid(logits.float())[0].cpu().numpy())
+    return np.stack(out)
+
+
+def predict_test(data_root, weights_dir, device, amp_dtype=None, series_dir="test_series"):
+    data_root = Path(data_root)
+    test = pd.read_csv(data_root / "test.csv", dtype={"StudyInstanceUID": str})
+    series = pd.read_csv(
+        data_root / "test_series.csv",
+        dtype={"StudyInstanceUID": str, "SeriesInstanceUID": str},
+    )
+    records = {
+        k: v.to_dict("records") for k, v in series.groupby("StudyInstanceUID", sort=False)
+    }
+    models = load_all_finetuned(weights_dir, device)
+    reader = _make_reader()
+    ids = test["StudyInstanceUID"].tolist()
+    probs = np.zeros((len(models), len(ids), len(LAB)), np.float32)
+    for i, sid in enumerate(ids):
+        vol, mask = build_study(sid, records, str(data_root / series_dir), reader)
+        probs[:, i] = predict_study(models, vol, mask, device, amp_dtype)
+    return ids, probs
+
+
+def combine_folds(ids, probs):
+    return pd.DataFrame(probs.mean(0), index=pd.Index(ids, name="StudyInstanceUID"), columns=LAB)
+
+
+def _make_reader():
+    import pydicom, cv2
+    from pydicom.pixel_data_handlers.util import apply_modality_lut
+
+    def order_and_meta(sdir):
+        fs = glob.glob(sdir + "/*.dcm")
+        recs = []
+        ps_list = []
+        for f in fs:
+            try:
+                h = pydicom.dcmread(f, stop_before_pixels=True)
+                iop = getattr(h, "ImageOrientationPatient", None)
+                ipp = getattr(h, "ImagePositionPatient", None)
+                if iop is not None and ipp is not None and len(iop) == 6:
+                    r = np.array(iop[:3], float)
+                    c = np.array(iop[3:], float)
+                    n = np.cross(r, c)
+                    pos = float(np.dot(np.array(ipp, float), n))
+                else:
+                    pos = float(getattr(h, "InstanceNumber", 0) or 0)
+                ps = getattr(h, "PixelSpacing", None)
+                ps = float(ps[0]) if ps is not None else 0.5
+                ps_list.append(ps)
+                recs.append((pos, f, ps))
+            except Exception:
+                recs.append((0.0, f, 0.5))
+        recs.sort(key=lambda x: x[0])
+        med_ps = float(np.median(ps_list)) if ps_list else 0.5
+        return [(f, ps) for _, f, ps in recs], med_ps
+
+    def read_px(f):
+        d = pydicom.dcmread(f)
+        a = apply_modality_lut(d.pixel_array, d).astype(np.float32)
+        if str(getattr(d, "PhotometricInterpretation", "")) == "MONOCHROME1":
+            a = a.max() - a
+        return a
+
+    def mm_crop_resize(a, ps):
+        h, w = a.shape
+        cpx = int(round(CROP_MM / max(ps, 1e-3)))
+        cpx = min(cpx, min(h, w))
+        y0 = (h - cpx) // 2
+        x0 = (w - cpx) // 2
+        a = a[y0 : y0 + cpx, x0 : x0 + cpx]
+        return cv2.resize(a, (IMG, IMG), interpolation=cv2.INTER_AREA)
+
+    return order_and_meta, read_px, mm_crop_resize
+
+
+def _pick_series_for_slot(rows, plane, fluid, used):
+    cands = [
+        r
+        for r in rows
+        if r["Anatomical_Plane"] == plane and r["SeriesInstanceUID"] not in used
+    ]
+    if fluid in (0, 1):
+        pref = [r for r in cands if int(r.get("Fluid_Sensitive", 0) or 0) == fluid]
+        if pref:
+            return pref[0]
+    return cands[0] if cands else None
+
+
+def build_study(sid, ser_records, tsdir, reader):
+    order_and_meta, read_px, mm_crop_resize = reader
+    rows = ser_records.get(sid, [])
+    vol = np.zeros((MAXS, IMG, IMG), np.uint8)
+    idx = 0
+    used = set()
+    for plane, fluid, k in SLOTS:
+        r = _pick_series_for_slot(rows, plane, fluid, used)
+        if r is None:
+            idx += k
+            continue
+        used.add(r["SeriesInstanceUID"])
+        files, med_ps = order_and_meta(f"{tsdir}/{sid}/{r['SeriesInstanceUID']}")
+        if not files:
+            idx += k
+            continue
+        n = len(files)
+        lo, hi = int(n * 0.15), int(n * 0.85) - 1
+        hi = max(hi, lo)
+        picks = np.linspace(lo, hi, k).round().astype(int) if n > 1 else [0] * k
+        arrs = []
+        pss = []
+        for p in picks:
+            fp, ps = files[min(p, n - 1)]
+            try:
+                arrs.append(read_px(fp))
+                pss.append(ps)
+            except Exception:
+                arrs.append(None)
+                pss.append(med_ps)
+        valid = [a for a in arrs if a is not None]
+        if valid:
+            allpx = np.concatenate([a.ravel() for a in valid])
+            loq, hiq = np.percentile(allpx, [2.0, 98.0])
+        else:
+            loq, hiq = 0.0, 1.0
+        for a, ps in zip(arrs, pss):
+            if idx >= MAXS:
+                break
+            if a is None:
+                idx += 1
+                continue
+            aw = np.clip((a - loq) / (hiq - loq + 1e-6), 0, 1)
+            aw = mm_crop_resize(aw, ps if ps > 0 else med_ps)
+            vol[idx] = (aw * 255).astype(np.uint8)
+            idx += 1
+        if idx >= MAXS:
+            break
+    mask = (vol.reshape(MAXS, -1).sum(1) > 0).astype(np.uint8)
+    return vol, mask

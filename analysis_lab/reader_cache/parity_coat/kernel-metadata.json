@@ -1,0 +1,20 @@
+{
+  "id": "micmlmodels/rsna-knee-coat-closeup-parity",
+  "title": "RSNA Knee Coat Closeup Parity",
+  "code_file": "parity_coat.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "keywords": [],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "dataset_sources": [
+    "micmlmodels/rsna-knee-reader-ghost-folds"
+  ],
+  "kernel_sources": [],
+  "model_sources": []
+}

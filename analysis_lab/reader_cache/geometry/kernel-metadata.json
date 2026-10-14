@@ -1,0 +1,16 @@
+{
+  "id": "micmlmodels/rsna-knee-series-geometry",
+  "title": "RSNA Knee Series Geometry",
+  "code_file": "geometry_dump.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "keywords": [],
+  "competition_sources": ["rsna-knee-abnormality-detection"],
+  "dataset_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

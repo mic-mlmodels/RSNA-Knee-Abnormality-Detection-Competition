@@ -1,0 +1,16 @@
+{
+  "id": "micmlmodels/rsna-knee-reader-cache-s0",
+  "title": "RSNA Knee Reader Cache S0",
+  "code_file": "build_cache.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "keywords": [],
+  "competition_sources": ["rsna-knee-abnormality-detection"],
+  "dataset_sources": ["goodpjw2008/rsna-knee-2-5d-convnext-reader"],
+  "kernel_sources": [],
+  "model_sources": []
+}

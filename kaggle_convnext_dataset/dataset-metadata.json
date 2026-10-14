@@ -1,0 +1,9 @@
+{
+  "title": "RSNA Knee ConvNeXt Ghost Folds",
+  "id": "micmlmodels/rsna-knee-convnext-ghost-folds",
+  "licenses": [
+    {
+      "name": "CC0-1.0"
+    }
+  ]
+}
