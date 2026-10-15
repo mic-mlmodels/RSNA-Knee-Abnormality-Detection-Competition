@@ -1,0 +1,27 @@
+{
+  "id": "varshithakolupuri/rsna-0-956-one-free-flip-68-ranks-up",
+  "id_no": 138658889,
+  "title": "RSNA 0.956: One Free Flip, 68 Ranks Up",
+  "code_file": "rsna-0-956-one-free-flip-68-ranks-up.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": false,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "keywords": [
+    "gpu"
+  ],
+  "dataset_sources": [
+    "heliosli/rsna-knee-compact-r7cnxfsss",
+    "nartaa/rsna-knee-publication-swa-weights-20261007",
+    "heliosli/rsna-orthofoundation-fold0-epoch7-20261004"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "model_sources": [],
+  "docker_image": "gcr.io/kaggle-private-byod/python@sha256:2757e0c7d1e0a9cb43da657b97e223c321a98f5014bdf64f44f2f6b083ad2b2f",
+  "machine_shape": "NvidiaTeslaT4"
+}

@@ -225,7 +225,7 @@ def main():
     pd.concat(rows).to_csv(f"{out_dir}/oof_fold{args.fold}.csv")
     say("gold per class: " + " ".join(f"{c[:6]}={a:.3f}" for c, a in zip(LABELS, g_each)))
     if os.path.exists(state_path):
-        os.remove(state_path)
+        os.replace(state_path, f"{out_dir}/state_end_fold{args.fold}.pt")
 
 
 if __name__ == "__main__":
