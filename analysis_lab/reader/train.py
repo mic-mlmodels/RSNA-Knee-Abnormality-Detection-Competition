@@ -18,7 +18,7 @@ import torch
 import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
 
-from knee import LABELS, N_VIEWS, KneeNet, StudyDataset, build_study_table
+from knee import LABELS, N_VIEWS, KneeNet, StudyDataset, build_study_table, mirror_augment
 
 import os as _os
 _BASE = _os.environ.get("KNEE_BASE", _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "data"))
@@ -70,6 +70,7 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--limit", type=int, default=0, help="debug: use only this many training studies")
     ap.add_argument("--ghost", action="store_true")
+    ap.add_argument("--mirror_p", type=float, default=0.0)
     ap.add_argument("--grad_ckpt", action="store_true")
     ap.add_argument("--snap", type=int, default=0)
     ap.add_argument("--max_steps", type=int, default=0)
@@ -86,6 +87,7 @@ def main():
     ap.add_argument("--joint_views", action="store_true")
     ap.add_argument("--spatial", action="store_true")
     args = ap.parse_args()
+    assert not (args.mirror_p and args.views), "the mirror does not move the close-up crop centres; full view only"
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -182,6 +184,8 @@ def main():
         opt.zero_grad(set_to_none=True)
         for x, mask, pos, y, *extra in train_dl:
             x, mask, pos, y = x.cuda(non_blocking=True), mask.cuda(), pos.cuda(), y.cuda()
+            if args.mirror_p:
+                x, pos = mirror_augment(x, pos, args.mirror_p)
             ctr, vid = (extra[0].cuda(), extra[1].cuda()) if extra and args.joint_views else (extra[0][:, 0].cuda(), extra[1][:, 0].cuda()) if extra else (None, None)
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 logit = model(x, mask, pos, res=args.res, train=True, ghost=args.ghost, centre=ctr, vid=vid)
