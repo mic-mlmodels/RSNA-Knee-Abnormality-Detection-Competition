@@ -80,6 +80,7 @@ def main():
     ap.add_argument("--zoom_mm", type=float, default=100.0)
     ap.add_argument("--full_p", type=float, default=0.0)
     ap.add_argument("--init", default="")
+    ap.add_argument("--init_state", default="")
     ap.add_argument("--const_lr", action="store_true")
     ap.add_argument("--hold_after", type=int, default=0)
     ap.add_argument("--joint_views", action="store_true")
@@ -166,6 +167,15 @@ def main():
         sched.load_state_dict(st["sched"])
         step, start_ep = st["step"], st["epoch"] + 1
         say(f"resumed after epoch {st['epoch']}")
+    elif args.init_state:
+        st = torch.load(args.init_state, map_location="cuda", weights_only=False)
+        model.load_state_dict(st["model"])
+        ema.load_state_dict(st["ema"])
+        opt.load_state_dict(st["opt"])
+        for g, base in zip(opt.param_groups, sched.base_lrs):
+            g["initial_lr"], g["lr"] = base, base * sched.lr_lambdas[0](0)
+        step = st["step"]
+        say(f"new schedule from {args.init_state} (epoch {st['epoch']}), optimiser moments and EMA kept")
     for ep in range(start_ep, args.epochs):
         model.train()
         t0, tot, n = time.time(), 0.0, 0
