@@ -1,0 +1,6 @@
+MODEL_READY {"gpu": "Tesla T4", "amp": "fp16", "models": 1, "models2": 0, "spatial_models": 1, "extent_models": 0, "studies": 1, "seconds": 3.9}
+/tmp/k1/k1src/cloud_code/training/vendor_runtime/monai060/monai/utils/module.py:189: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  pkg = __import__(module)  # top level module
+get_mempolicy: Operation not permitted
+{"done": 1, "of": 1, "scored": 1, "fallback": 0, "elapsed_s": 48.3, "s_per_study": 48.32, "decode_s": 23.4, "render_s": 1.2, "gpu_s": 14.8, "anchor_s": 2.1, "anchors": {"skm_tea_joint_avg2": 1}, "windows": 510}
+WORKER_DONE {"studies": 1, "scored": 1, "timed_out": false, "seconds": 50.5, "amp": "fp16"} fallback 0

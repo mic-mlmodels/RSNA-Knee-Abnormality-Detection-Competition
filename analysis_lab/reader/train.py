@@ -87,7 +87,7 @@ def main():
     ap.add_argument("--joint_views", action="store_true")
     ap.add_argument("--spatial", action="store_true")
     args = ap.parse_args()
-    assert not (args.mirror_p and args.views), "the mirror does not move the close-up crop centres; full view only"
+    assert not (args.mirror_p and args.joint_views), "mirror augmentation is not wired for joint views"
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -184,9 +184,9 @@ def main():
         opt.zero_grad(set_to_none=True)
         for x, mask, pos, y, *extra in train_dl:
             x, mask, pos, y = x.cuda(non_blocking=True), mask.cuda(), pos.cuda(), y.cuda()
-            if args.mirror_p:
-                x, pos = mirror_augment(x, pos, args.mirror_p)
             ctr, vid = (extra[0].cuda(), extra[1].cuda()) if extra and args.joint_views else (extra[0][:, 0].cuda(), extra[1][:, 0].cuda()) if extra else (None, None)
+            if args.mirror_p:
+                x, pos, ctr, vid = mirror_augment(x, pos, args.mirror_p, ctr, vid)
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 logit = model(x, mask, pos, res=args.res, train=True, ghost=args.ghost, centre=ctr, vid=vid)
             loss = F.binary_cross_entropy_with_logits(logit.float(), y)

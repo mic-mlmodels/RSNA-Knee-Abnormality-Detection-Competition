@@ -1,0 +1,151 @@
+{
+ "seconds": 64.0,
+ "budget_s": 28112,
+ "parts": [
+  2,
+  1
+ ],
+ "runs": [
+  [
+   "B.part0",
+   0,
+   64.0,
+   ""
+  ],
+  [
+   "B.part1",
+   0,
+   54.0,
+   ""
+  ]
+ ],
+ "receipts": [
+  {
+   "studies": 2,
+   "scored": 2,
+   "seconds": 60.4,
+   "amp": "fp16",
+   "gpu": "Tesla T4",
+   "torch": "2.11.0+cu128",
+   "timm": "1.0.29",
+   "stats": {
+    "decode_s": 57.2,
+    "render_s": 3.0,
+    "gpu_s": 16.5,
+    "windows": 1076,
+    "wait_s": 37.6,
+    "rows": 2,
+    "anchor_s": 2.7
+   },
+   "timed_out": false,
+   "anchor_methods": {
+    "slab_prior": 1,
+    "skm_tea_joint": 1
+   },
+   "per_study": [
+    [
+     "1.2.826.0.1.3680043.8.498.10047035057544427318018579121635276191",
+     574,
+     31.709,
+     1.597,
+     9.207
+    ],
+    [
+     "1.2.826.0.1.3680043.8.498.10067514707072572280263481548497591402",
+     502,
+     25.451,
+     1.368,
+     7.323
+    ]
+   ],
+   "progress": [
+    {
+     "done": 1,
+     "of": 2,
+     "scored": 1,
+     "fallback": 0,
+     "elapsed_s": 50.7,
+     "s_per_study": 50.73,
+     "decode_s": 31.7,
+     "render_s": 1.6,
+     "gpu_s": 9.2,
+     "anchor_s": 1.4,
+     "anchors": {
+      "slab_prior": 1
+     },
+     "windows": 574
+    },
+    {
+     "done": 2,
+     "of": 2,
+     "scored": 2,
+     "fallback": 0,
+     "elapsed_s": 58.1,
+     "s_per_study": 29.03,
+     "decode_s": 57.2,
+     "render_s": 3.0,
+     "gpu_s": 16.5,
+     "anchor_s": 2.7,
+     "anchors": {
+      "slab_prior": 1,
+      "skm_tea_joint": 1
+     },
+     "windows": 1076
+    }
+   ]
+  },
+  {
+   "studies": 1,
+   "scored": 1,
+   "seconds": 50.5,
+   "amp": "fp16",
+   "gpu": "Tesla T4",
+   "torch": "2.11.0+cu128",
+   "timm": "1.0.29",
+   "stats": {
+    "decode_s": 23.4,
+    "render_s": 1.2,
+    "gpu_s": 14.8,
+    "windows": 510,
+    "wait_s": 29.6,
+    "rows": 1,
+    "anchor_s": 2.1
+   },
+   "timed_out": false,
+   "anchor_methods": {
+    "skm_tea_joint_avg2": 1
+   },
+   "per_study": [
+    [
+     "1.2.826.0.1.3680043.8.498.10062861783145312629332250977456991776",
+     510,
+     23.447,
+     1.194,
+     14.806
+    ]
+   ],
+   "progress": [
+    {
+     "done": 1,
+     "of": 1,
+     "scored": 1,
+     "fallback": 0,
+     "elapsed_s": 48.3,
+     "s_per_study": 48.32,
+     "decode_s": 23.4,
+     "render_s": 1.2,
+     "gpu_s": 14.8,
+     "anchor_s": 2.1,
+     "anchors": {
+      "skm_tea_joint_avg2": 1
+     },
+     "windows": 510
+    }
+   ]
+  }
+ ],
+ "retry": null,
+ "failed_after_retry": {},
+ "fail_cap": 0,
+ "probs_sha256": "7975394db4e24073d0150ab0a9195f5c1dc117325f6cc6872f666b17bf5e28ab"
+}

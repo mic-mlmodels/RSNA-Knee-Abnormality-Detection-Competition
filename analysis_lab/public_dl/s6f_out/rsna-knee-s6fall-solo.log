@@ -1,0 +1,37 @@
+[{"stream_name":"stdout","time":1.650239906,"data":"19:13:46 +     0s K1_BUILD {\"build_id\": \"2026-10-12T10:12:34+03:00/f0d87208a3de20a5ac936388bfd763799d6391833fea3a4f90ec6de14ef5051b\", \"run\": {\"nonce\": \"d635fe281d40c5d9d1c52bf85e9b9155\", \"started_utc\": \"2026-10-14T19:13:46+00:00\", \"kaggle_run_type\": \"Batch\"}, \"self\": {\"path\": \"/kaggle/src/script.py\", \"sha256\": \"6e87350d5ae092b7a889546ca13517303523bc469f7e611ffe945913434d22fe\", \"derived_build_id\": \"2026-10-12T10:12:34+03:00/4bf631c598b05a5df85fb890c6f61c1aafcf98bbfd6f8b04cc3cd28bd626455a\", \"derived_matches\": false}}\n"}
+,{"stream_name":"stdout","time":1.650710726,"data":"19:13:46 +     0s [guard] armed: watchdog 28800s (kill children, delete submission.csv, _exit 1); faulthandler backstop 29400s\n"}
+,{"stream_name":"stdout","time":1.6507326409999998,"data":"19:13:46 +     0s K1 mode submit | python 3.13.15 | A sha bcd864cbf349... | model E_prior_s42_fall.pt 0c7297d58f06... | budgets A 9000s/attempt (stall 1800s) B floor 14400s parity 0s guard 28800s\n"}
+,{"stream_name":"stdout","time":1.697749876,"data":"19:13:46 +     0s [stage] env start | gpu ['0, 0 MiB, 15360 MiB, 0 %', '1, 0 MiB, 15360 MiB, 0 %'] | MemAvailable 31032 MB\n"}
+,{"stream_name":"stdout","time":20.957184794,"data":"19:14:05 +    19s K1_ENV {\"python\": \"3.13.15\", \"torch\": \"2.11.0+cu128\", \"cuda\": \"12.8\", \"cudnn\": 91900, \"cuda_available\": true, \"n_gpu\": 2, \"gpus\": [\"Tesla T4\", \"Tesla T4\"], \"capability\": [7, 5], \"bf16_supported\": true, \"numpy\": \"2.1.3\", \"pandas\": \"2.3.3\", \"timm\": \"1.0.29\", \"pydicom\": \"3.0.2\", \"cv2\": \"4.14.0\", \"scipy\": \"1.16.3\", \"safetensors\": \"0.8.0\", \"has_requests\": true, \"has_kagglesdk\": true, \"has_pylibjpeg\": false, \"has_gdcm\": false}\n"}
+,{"stream_name":"stdout","time":20.998766201,"data":"19:14:05 +    19s [stage] env done in 19s | gpu ['0, 0 MiB, 15360 MiB, 0 %', '1, 0 MiB, 15360 MiB, 0 %']\n"}
+,{"stream_name":"stdout","time":21.037051278,"data":"19:14:05 +    19s [stage] inputs start | gpu ['0, 0 MiB, 15360 MiB, 0 %', '1, 0 MiB, 15360 MiB, 0 %'] | MemAvailable 31006 MB\n"}
+,{"stream_name":"stdout","time":21.070873758,"data":"19:14:05 +    19s competition root /kaggle/input/competitions/rsna-knee-abnormality-detection | weights /kaggle/input/rsna-knee-s6fall-weights | heliosli /kaggle/input/rsna-orthofoundation-fold0-epoch7-20261004\n"}
+,{"stream_name":"stdout","time":28.875048519,"data":"19:14:13 +    27s inputs ok: 3 test studies | MANIFEST b66c574b5c0c13cc | model E_prior_s42_fall.pt 0c7297d58f061ab4... | 293 payload files\n"}
+,{"stream_name":"stdout","time":28.919461325,"data":"19:14:13 +    27s [stage] inputs done in 8s | gpu ['0, 0 MiB, 15360 MiB, 0 %', '1, 0 MiB, 15360 MiB, 0 %']\n"}
+,{"stream_name":"stdout","time":28.962460721,"data":"19:14:13 +    27s [stage] B_probe start | gpu ['0, 0 MiB, 15360 MiB, 0 %', '1, 0 MiB, 15360 MiB, 0 %'] | MemAvailable 31001 MB\n"}
+,{"stream_name":"stdout","time":55.308734237,"data":"19:14:39 +    54s K1_BPROBE {\"setuptools\": \"81.0.0\", \"has_distutils_hack\": true, \"distutils\": \"/usr/local/lib/python3.13/dist-packages/setuptools/_distutils/__init__.py\", \"monai\": [\"0.6.0\", \"training/vendor_runtime/monai060/monai/__init__.py\"], \"vnet_out\": [1, 4, 128, 128], \"timm\": \"1.0.29\", \"spatial\": true, \"params\": 50018284, \"seconds\": 24.2}\n"}
+,{"stream_name":"stdout","time":55.352477935,"data":"19:14:39 +    54s [stage] B_probe done in 26s | gpu ['0, 0 MiB, 15360 MiB, 0 %', '1, 0 MiB, 15360 MiB, 0 %']\n"}
+,{"stream_name":"stdout","time":55.395255191,"data":"19:14:40 +    54s [stage] A start | gpu ['0, 0 MiB, 15360 MiB, 0 %', '1, 0 MiB, 15360 MiB, 0 %'] | MemAvailable 30796 MB\n"}
+,{"stream_name":"stdout","time":55.397355134,"data":"19:14:40 +    54s [A] started A pid 66\n"}
+,{"stream_name":"stdout","time":89.401239438,"data":"19:15:14 +    88s [A] A exited rc 0 after 34s\n"}
+,{"stream_name":"stdout","time":89.405100113,"data":"19:15:14 +    88s [A] ok: 3 rows, sha faa20e95a1779658..., internal fallbacks 0 (cap 3), attempts 1, 34s\n"}
+,{"stream_name":"stdout","time":89.443655204,"data":"19:15:14 +    88s [stage] A done in 34s | gpu ['0, 0 MiB, 15360 MiB, 0 %', '1, 0 MiB, 15360 MiB, 0 %']\n"}
+,{"stream_name":"stdout","time":89.484671601,"data":"19:15:14 +    88s [stage] B start | gpu ['0, 0 MiB, 15360 MiB, 0 %', '1, 0 MiB, 15360 MiB, 0 %'] | MemAvailable 30647 MB\n"}
+,{"stream_name":"stdout","time":89.485548977,"data":"19:15:14 +    88s [B] 3 studies over 2 GPU process(es) [2, 1], budget 28112s, compact_infer deadline +26912s\n"}
+,{"stream_name":"stdout","time":89.486184035,"data":"19:15:14 +    88s [B] started B.part0 pid 248\n"}
+,{"stream_name":"stdout","time":89.486812554,"data":"19:15:14 +    88s [B] started B.part1 pid 249\n"}
+,{"stream_name":"stdout","time":143.493131955,"data":"19:16:08 +   142s [B] B.part1 exited rc 0 after 54s\n"}
+,{"stream_name":"stdout","time":153.494318285,"data":"19:16:18 +   152s [B] B.part0 exited rc 0 after 64s\n"}
+,{"stream_name":"stdout","time":153.508590063,"data":"19:16:18 +   152s [B] ok: 3 studies, 64s, retry None, failed after retry 0 (cap 0)\n"}
+,{"stream_name":"stdout","time":153.548732565,"data":"19:16:18 +   152s [stage] B done in 64s | gpu ['0, 0 MiB, 15360 MiB, 0 %', '1, 0 MiB, 15360 MiB, 0 %']\n"}
+,{"stream_name":"stdout","time":153.588597698,"data":"19:16:18 +   152s [stage] blend start | gpu ['0, 0 MiB, 15360 MiB, 0 %', '1, 0 MiB, 15360 MiB, 0 %'] | MemAvailable 30610 MB\n"}
+,{"stream_name":"stdout","time":153.594588127,"data":"19:16:18 +   152s [blend] wrote /kaggle/working/submission.csv | 3 rows | B failed (rank A) 0 | rho(A,B) mean 0.6666666666666666 | sha 00031c5337550d13...\n"}
+,{"stream_name":"stdout","time":153.633456155,"data":"19:16:18 +   152s [stage] blend done in 0s | gpu ['0, 0 MiB, 15360 MiB, 0 %', '1, 0 MiB, 15360 MiB, 0 %']\n"}
+,{"stream_name":"stdout","time":153.635762021,"data":"19:16:18 +   152s K1_DONE {\"mode\": \"submit\", \"rows\": 3, \"seconds\": 152.0, \"stages\": {\"env\": 19.3, \"inputs\": 7.8, \"B_probe\": 26.4, \"A\": 34.1, \"B\": 64.1, \"blend\": 0.0}, \"submission_sha256\": \"00031c5337550d13acaf2e8dbf8743e260169d93da64296d479f2c0fb0c0d6b0\"}\n"}
+,{"stream_name":"stderr","time":155.492060686,"data":"/usr/local/lib/python3.13/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\\|'\n"}
+,{"stream_name":"stderr","time":155.492097126,"data":"  cells[i][c] = re.sub('\\\\\\\\\\|', '|', cell)\n"}
+,{"stream_name":"stderr","time":155.695827076,"data":"/usr/local/lib/python3.13/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\\_'\n"}
+,{"stream_name":"stderr","time":155.695854346,"data":"  text = re.sub(r'_', '\\_', text) # Escape underscores in display text\n"}
+,{"stream_name":"stderr","time":156.479301361,"data":"[NbConvertApp] Converting notebook __script__.ipynb to html\n"}
+,{"stream_name":"stderr","time":157.34922491,"data":"[NbConvertApp] Writing 694063 bytes to __results__.html\n"}
+]

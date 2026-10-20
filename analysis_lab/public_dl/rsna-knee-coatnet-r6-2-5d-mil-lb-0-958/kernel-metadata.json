@@ -1,0 +1,29 @@
+{
+  "id": "goodpjw2008/rsna-knee-coatnet-r6-2-5d-mil-lb-0-958",
+  "id_no": 137102536,
+  "title": "RSNA Knee | CoAtNet + R6 + 2.5D MIL | LB 0.958",
+  "code_file": "rsna-knee-coatnet-r6-2-5d-mil-lb-0-958.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": false,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "keywords": [
+    "gpu"
+  ],
+  "dataset_sources": [
+    "goodpjw2008/rsna-knee-2-5d-convnext-reader",
+    "heliosli/rsna-knee-compact-r7cnxfsss",
+    "rostigor/rsna-knee-r6-fe055406",
+    "nartaa/rsna-knee-publication-swa-weights-20261007",
+    "heliosli/rsna-orthofoundation-fold0-epoch7-20261004"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "model_sources": [],
+  "docker_image": "gcr.io/kaggle-private-byod/python@sha256:37c64f7dd9c54116ecd1bcc88817c5469b88387388fade02bfa8bf3fc647d461",
+  "machine_shape": "NvidiaTeslaT4"
+}

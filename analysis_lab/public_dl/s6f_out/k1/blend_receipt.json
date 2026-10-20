@@ -1,0 +1,24 @@
+{
+ "weights": {
+  "A_0949": 0.0,
+  "B_s6f0": 1.0
+ },
+ "rows": 3,
+ "b_failed_rank_A_only": {},
+ "rho_A_B": {
+  "ACL": 1.0,
+  "MCL": 1.0,
+  "Medial Meniscus": 1.0,
+  "Lateral Meniscus": 1.0,
+  "Medial OA": -0.5,
+  "Lateral OA": 0.5,
+  "PF OA": 0.5,
+  "Effusion": 0.5,
+  "Synovitis": 1.0,
+  "Baker's": 1.0,
+  "Contusion": 0.5,
+  "Fracture": 0.5
+ },
+ "rho_mean": 0.6666666666666666,
+ "submission_sha256": "00031c5337550d13acaf2e8dbf8743e260169d93da64296d479f2c0fb0c0d6b0"
+}

@@ -8,9 +8,7 @@
   "enable_gpu": true,
   "enable_tpu": false,
   "enable_internet": false,
-  "keywords": [
-    "gpu"
-  ],
+  "keywords": ["gpu"],
   "dataset_sources": [
     "heliosli/rsna-knee-compact-r7cnxfsss",
     "nartaa/rsna-knee-publication-swa-weights-20261007",
@@ -18,9 +16,7 @@
     "micmlmodels/rsna-knee-reader-ghost-folds"
   ],
   "kernel_sources": [],
-  "competition_sources": [
-    "rsna-knee-abnormality-detection"
-  ],
+  "competition_sources": ["rsna-knee-abnormality-detection"],
   "model_sources": [],
   "machine_shape": "NvidiaTeslaT4"
 }

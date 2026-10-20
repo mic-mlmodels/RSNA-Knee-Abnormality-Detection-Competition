@@ -14,8 +14,12 @@ want.update({"bakers": "Baker's", "bakerscyst": "Baker's", "pfoa": "PF OA", "pat
 rj = pd.read_csv(C + "/riadmohamed42_jev-knee-labels/FINAL2_labels_scores.csv")
 idc = [c for c in rj.columns if norm(c) in ("studyinstanceuid", "studyuid", "study", "uid", "studyid")][0]
 rj = rj.rename(columns={c: want[norm(c)] for c in rj.columns if norm(c) in want}).drop_duplicates(idc).set_index(idc).loc[weak, LABELS].astype(float)
+om = pd.read_csv(C + "/../label_candidates2/omerzalman_rsna-knee-11-label-evidence-fusion/calibrated_soft_labels.csv").set_index("StudyInstanceUID").reindex(weak).reindex(columns=LABELS).astype(float)
+def mean_skip(*frames):
+    return pd.concat(frames).groupby(level=0, sort=False).mean().loc[weak, LABELS]
 assert not ts.isna().any().any() and not dr.isna().any().any() and not rj.isna().any().any()
-arms = {"tsuyu": ts, "tsuyumix": 0.5 * ours + 0.5 * ts, "oursdread": 0.5 * ours + 0.5 * dr, "dread": dr, "all3": (ours + ts + dr) / 3, "all4": (ours + ts + dr + rj) / 4}
+arms = {"tsuyu": ts, "tsuyumix": 0.5 * ours + 0.5 * ts, "oursdread": 0.5 * ours + 0.5 * dr, "dread": dr, "all3": (ours + ts + dr) / 3, "all4": (ours + ts + dr + rj) / 4,
+        "all3om": mean_skip(ours, ts, dr, om), "oursts_om": mean_skip(ours, ts, om), "om": om.fillna(ours)}
 for f in [int(x) for x in (sys.argv[3].split(",") if len(sys.argv) > 3 else ["0", "1"])]:
     keep = lab.loc[weak, "fold"] == f
     for name, t in arms.items():

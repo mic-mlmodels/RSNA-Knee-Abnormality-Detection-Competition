@@ -186,10 +186,36 @@ def ghost_views(x, group, p=0.5, ghosts=(2, 8), intensity=(0.2, 0.7), restore=0.
 SAG_SLOTS = [PLANES.index("Sagittal"), PLANES.index("Sagittal") + 3]
 
 
-def mirror_augment(x, pos, p=0.5):
+FLIP_SLOTS = [s for s in range(N_SLOTS) if s not in SAG_SLOTS]
+COR_SLOTS = [PLANES.index("Coronal"), PLANES.index("Coronal") + 3]
+
+
+def mirror_augment(x, pos, p=0.5, ctr=None, vid=None):
     m = torch.rand(x.shape[0], device=x.device) < p
     if not m.any():
-        return x, pos
+        return x, pos, ctr, vid
+    x, pos = x.clone(), pos.clone()
+    xs, ps = x[m], pos[m]
+    xm = xs.flip(-1)
+    xm[:, SAG_SLOTS] = xs[:, SAG_SLOTS].flip(3)
+    ps[:, SAG_SLOTS] = 1 - ps[:, SAG_SLOTS]
+    x[m], pos[m] = xm, ps
+    if ctr is not None:
+        ctr = ctr.clone()
+        cs = ctr[m]
+        cs[:, FLIP_SLOTS, 1] = -cs[:, FLIP_SLOTS, 1]
+        ctr[m] = cs
+    if vid is not None:
+        vid = vid.clone()
+        vs = vid[m]
+        cv = vs[:, COR_SLOTS]
+        vs[:, COR_SLOTS] = torch.where(
+            cv == 3,
+            torch.full_like(cv, 4),
+            torch.where(cv == 4, torch.full_like(cv, 3), cv),
+        )
+        vid[m] = vs
+    return x, pos, ctr, vid
     x, pos = x.clone(), pos.clone()
     xs, ps = x[m], pos[m]
     xm = xs.flip(-1)

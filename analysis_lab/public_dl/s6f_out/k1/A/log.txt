@@ -1,0 +1,19 @@
+device cuda | gpus 2 | torch 2.11.0+cu128
+test root: /kaggle/input/competitions/rsna-knee-abnormality-detection | series dir: /kaggle/input/competitions/rsna-knee-abnormality-detection/test_series
+test studies 3 | test series 15
+XLA unavailable: ModuleNotFoundError No module named 'torch_xla' | device cuda
+[weights] sha256 7e5315dad125b99fc65b340b3de41de628e9be51ff5835355dd61c86472244ef
+[gpu cuda:0] loaded 1 arm(s) | 10s
+[weights] sha256 7e5315dad125b99fc65b340b3de41de628e9be51ff5835355dd61c86472244ef
+[gpu cuda:1] loaded 1 arm(s) | 12s
+  [pre] 3/3 | 14s
+[pre] done: 3 studies in 2s (procs 4 x fastread study_lut 32/16 threads)
+  [gpu] 3/3 | 26s
+[gpu] done: 3/3 studies on 2 device(s) | 26s
+[blend] weighted rank-mean w={'raptor_ft_alldata_t16_blendjev_oai_d96_r384_swa.pt': np.float64(1.0)}
+wrote /kaggle/working/submission.csv | 3 rows x 13 cols
+                                                StudyInstanceUID  ACL  MCL  Medial Meniscus  Lateral Meniscus  Medial OA  Lateral OA  PF OA  Effusion  Synovitis  Baker's  Contusion  Fracture
+1.2.826.0.1.3680043.8.498.10047035057544427318018579121635276191  0.0  0.5              1.0               0.0        1.0         0.0    0.0       0.5        0.5      1.0        0.5       0.0
+1.2.826.0.1.3680043.8.498.10062861783145312629332250977456991776  1.0  1.0              0.5               0.5        0.0         0.5    1.0       1.0        1.0      0.5        1.0       1.0
+1.2.826.0.1.3680043.8.498.10067514707072572280263481548497591402  0.5  0.0              0.0               1.0        0.5         1.0    0.5       0.0        0.0      0.0        0.0       0.5
+DONE 27s

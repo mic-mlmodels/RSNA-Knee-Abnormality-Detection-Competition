@@ -1,0 +1,55 @@
+{
+ "status": "PASS",
+ "arm": "E_prior",
+ "models": [
+  "E_prior_s42_fall.pt"
+ ],
+ "backbone": "convnext_small",
+ "shared_trunk": false,
+ "init": null,
+ "spatial_models": 1,
+ "extent_models": 0,
+ "group2": null,
+ "studies": 1,
+ "scored": 1,
+ "fallback": {},
+ "timed_out": false,
+ "amp": "fp16",
+ "gpu": "Tesla T4",
+ "torch": "2.11.0+cu128",
+ "timm": "1.0.29",
+ "seconds": 50.5,
+ "stats": {
+  "decode_s": 23.4,
+  "render_s": 1.2,
+  "gpu_s": 14.8,
+  "windows": 510,
+  "wait_s": 29.6,
+  "rows": 1,
+  "anchor_s": 2.1
+ },
+ "per_study": [
+  [
+   "1.2.826.0.1.3680043.8.498.10062861783145312629332250977456991776",
+   510,
+   23.447,
+   1.194,
+   14.806
+  ]
+ ],
+ "anchor_methods": {
+  "skm_tea_joint_avg2": 1
+ },
+ "views": "v4",
+ "phys_mm": 3.5,
+ "side_check": null,
+ "anchor_weights_sha256": "5904dd16eb9a4fd7a1caf90ac977f8fe2ef364908598c23c209db3fe7fd1563e",
+ "sha256": {
+  "px_cache.py": "b13e38a7ad3bd496f8027e02209653e224b0926db4f0853eeb0d076a2d6e2632",
+  "compact_train.py": "14767c7a8f0daa986477511fe9a83aefe032a208ae978fabf15a5f896992ac80",
+  "compact_infer.py": "34f433fe72b732543813165c3397ec80cef01b0d49b25b7b22668714f0b0ef4a",
+  "probe_infer.py": "a6cc31448019c84be5868d0a2ff1d99719b23b0f86110efc03efff3ce6bd6980",
+  "knee_anchor_bank_v2.py": "e564807a129dfcd3c984348917436ee6083066a4d685340587ebd1d3ea14f309"
+ },
+ "model": "compact fine-tuned image model on the pixel cache"
+}

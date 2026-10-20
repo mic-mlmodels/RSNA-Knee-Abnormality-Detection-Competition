@@ -92,7 +92,7 @@ def main():
             keys.append(f"{tname}|k{k}|off{off}|r{res}|{flip}")
             preds.append(torch.cat(v).numpy())
         print(f"fold {fold}: pass {tname} k{k} offset {off} done ({time.time() - t0:.0f}s)", flush=True)
-    np.savez_compressed(D + f"reader_runs/tta_audit3_fold{fold}.npz", keys=np.array(keys), preds=np.stack(preds).astype(np.float32), ids=np.array(studies))
+    np.savez_compressed(D + f"reader_runs/tta_audit3_" + (sys.argv[2] if len(sys.argv) > 2 else "lab_all3") + f"_fold{fold}.npz", keys=np.array(keys), preds=np.stack(preds).astype(np.float32), ids=np.array(studies))
     print(f"fold {fold}: saved {len(keys)} variants for {len(studies)} studies", flush=True)
 
 

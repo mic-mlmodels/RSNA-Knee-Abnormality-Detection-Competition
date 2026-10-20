@@ -1,0 +1,26 @@
+{
+  "id": "micmlmodels/r7-224-plus-own-mz64",
+  "title": "r7-224-plus-own-mz64",
+  "code_file": "r7-224-plus-own-mz64.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "keywords": [
+    "gpu"
+  ],
+  "dataset_sources": [
+    "heliosli/rsna-knee-r6-frozen-fe055406-w1",
+    "nartaa/rsna-knee-publication-swa-weights-20261007",
+    "heliosli/rsna-orthofoundation-fold0-epoch7-20261004",
+    "micmlmodels/rsna-knee-reader-ghost-folds"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "model_sources": [],
+  "machine_shape": "NvidiaTeslaT4"
+}

@@ -1,0 +1,30 @@
+{
+  "id": "heliosli/this-is-best-public-dataset-new-version-0-9586",
+  "id_no": 138670458,
+  "title": "This is best public dataset new version =0.9586\u2b50\u2b50\u2b50",
+  "code_file": "this-is-best-public-dataset-new-version-0-9586.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": false,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "keywords": [
+    "gpu"
+  ],
+  "dataset_sources": [
+    "goodpjw2008/rsna-knee-2-5d-convnext-reader",
+    "heliosli/rsna-knee-r6-frozen-fe055406",
+    "nartaa/rsna-knee-publication-swa-weights-20261007",
+    "heliosli/rsna-orthofoundation-fold0-epoch7-20261004"
+  ],
+  "kernel_sources": [
+    "goodpjw2008/rsna-knee-coatnet-r6-2-5d-mil-lb-0-958"
+  ],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "model_sources": [],
+  "docker_image": "gcr.io/kaggle-private-byod/python@sha256:2757e0c7d1e0a9cb43da657b97e223c321a98f5014bdf64f44f2f6b083ad2b2f",
+  "machine_shape": "NvidiaTeslaT4"
+}
